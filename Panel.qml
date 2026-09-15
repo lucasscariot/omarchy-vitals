@@ -108,8 +108,8 @@ Panel {
           spacing: Style.space(12)
           Text { text: "Past hour"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.title; font.weight: Font.Medium }
           HistoryChart { width: parent.width; title: "CPU"; metric: "cpu"; points: root.sample.history || []; now: root.clockTime }
-          HistoryChart { width: parent.width; title: "Memory"; metric: "ram"; points: root.sample.history || []; now: root.clockTime; lineColor: "#77E68C" }
-          HistoryChart { width: parent.width; title: "Temperature"; metric: "temperature"; unit: "°C"; points: root.sample.history || []; now: root.clockTime; lineColor: "#FF9F0A" }
+          HistoryChart { width: parent.width; title: "Memory"; metric: "ram"; points: root.sample.history || []; now: root.clockTime; lineColor: Color.background.hslLightness > 0.5 ? "#237A3B" : "#77E68C" }
+          HistoryChart { width: parent.width; title: "Temperature"; metric: "temperature"; unit: "°C"; points: root.sample.history || []; now: root.clockTime; lineColor: Color.background.hslLightness > 0.5 ? "#A64B00" : "#FF9F0A" }
           Row {
             width: parent.width
             Repeater {
