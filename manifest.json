@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "lucas.resource-usage",
+  "name": "Resource usage",
+  "version": "1.0.0",
+  "description": "Live CPU threads, memory, temperature and one-hour history in a native popup.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {"barWidget": "Panel.qml"},
+  "barWidget": {"displayName": "Resource usage", "allowMultiple": false}
+}

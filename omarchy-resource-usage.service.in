@@ -1,0 +1,13 @@
+[Unit]
+Description=Resource usage and one-hour history for the Omarchy bar
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/python3 @COLLECTOR@
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=graphical-session.target
