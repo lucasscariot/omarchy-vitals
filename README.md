@@ -1,14 +1,13 @@
 # Omarchy Vitals
 
 A CPU, memory, and temperature widget for the Omarchy bar. Click it to open
-a native panel with all logical CPUs and rolling one-hour history charts.
+a native panel with overall usage and rolling one-hour history charts.
 The panel follows your Omarchy theme, including its fonts, corners, and popup
 transparency. Frost requires your Hyprland layer blur configuration.
 
 ## Features
 
 - Live CPU, RAM, and CPU temperature in the bar, updated every two seconds.
-- Usage meters for every online logical CPU (hardware thread).
 - One-hour CPU, memory, and temperature charts with average and sampled peak.
 - Ten-second history samples, saved every 30 seconds and on clean shutdown.
 - Native popup positioning, outside-click dismissal, and Escape to close.
@@ -57,8 +56,7 @@ omarchy restart shell
 ## Data and interpretation
 
 CPU use comes from deltas in `/proc/stat`; RAM is total minus available memory,
-so reclaimable cache is not counted as used. CPU meters represent logical CPUs,
-not separate physical cores.
+so reclaimable cache is not counted as used. CPU usage is aggregated across all logical CPUs.
 
 Temperature prefers AMD `k10temp`/`zenpower` package readings or Intel
 `coretemp` package readings, falling back to core readings and recognized CPU/SoC

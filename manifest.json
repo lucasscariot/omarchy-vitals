@@ -3,7 +3,7 @@
   "id": "lucas.resource-usage",
   "name": "Omarchy Vitals",
   "version": "1.0.0",
-  "description": "Live CPU threads, memory, temperature and one-hour history in a native popup.",
+  "description": "Live CPU, memory, temperature and one-hour history in a native popup.",
   "kinds": ["bar-widget"],
   "entryPoints": {"barWidget": "Panel.qml"},
   "barWidget": {"displayName": "Vitals", "allowMultiple": false}

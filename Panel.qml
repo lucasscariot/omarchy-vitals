@@ -105,37 +105,6 @@ Panel {
         }
         Column {
           width: parent.width
-          spacing: Style.space(10)
-          Text {
-            text: "Logical CPUs · " + (root.sample.cores || []).length + " threads"
-            color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; font.weight: Font.Medium
-          }
-          Grid {
-            width: parent.width
-            columns: 4
-            columnSpacing: Style.space(12)
-            rowSpacing: Style.space(10)
-            Repeater {
-              model: root.sample.cores || []
-              delegate: Column {
-                required property var modelData
-                width: (content.width - Style.space(36)) / 4
-                spacing: Style.space(4)
-                Row {
-                  width: parent.width
-                  Text { width: parent.width * 0.55; text: "CPU " + modelData.id; color: Qt.alpha(Color.foreground, 0.7); font.family: Style.font.family; font.pixelSize: Style.font.bodySmall }
-                  Text { width: parent.width * 0.45; text: Math.round(modelData.usage) + "%"; horizontalAlignment: Text.AlignRight; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.bodySmall }
-                }
-                Rectangle {
-                  width: parent.width; height: Style.space(4); radius: 2; color: Qt.alpha(Color.foreground, 0.12)
-                  Rectangle { width: parent.width * modelData.usage / 100; height: parent.height; radius: 2; color: Color.accent }
-                }
-              }
-            }
-          }
-        }
-        Column {
-          width: parent.width
           spacing: Style.space(12)
           Text { text: "Past hour"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.title; font.weight: Font.Medium }
           HistoryChart { width: parent.width; title: "CPU"; metric: "cpu"; points: root.sample.history || []; now: root.clockTime }
