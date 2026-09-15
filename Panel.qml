@@ -73,7 +73,7 @@ Panel {
         width: parent.width
         spacing: Style.space(18)
         Text {
-          text: "System resources"
+          text: "Vitals"
           color: Color.foreground
           font.family: Style.font.family
           font.pixelSize: Style.font.heading

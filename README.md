@@ -1,4 +1,4 @@
-# Omarchy Resource Usage
+# Omarchy Vitals
 
 A CPU, memory, and temperature widget for the Omarchy bar. Click it to open
 a native panel with all logical CPUs and rolling one-hour history charts.
@@ -28,6 +28,8 @@ transparency. Frost requires your Hyprland layer blur configuration.
 Clone or download this repository, then run from its directory:
 
 ```sh
+git clone https://github.com/lucasscariot/omarchy-vitals.git
+cd omarchy-vitals
 python3 install.py
 ```
 
@@ -39,6 +41,8 @@ starts the collector, and restarts the shell. Existing plugin settings for this
 widget are replaced by its native entry; other widgets are preserved.
 
 The directory and manifest ID must remain `lucas.resource-usage`.
+This stable internal ID preserves existing installations; the project and
+display name are Omarchy Vitals.
 For an update, pull the repository and rerun the installer.
 
 `python3 install.py --no-start` writes files without starting services or
