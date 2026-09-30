@@ -65,6 +65,31 @@ class CollectorTests(unittest.TestCase):
 
 
 class InstallerTests(unittest.TestCase):
+    def test_updates_preserve_existing_vitals_options_and_position(self):
+        for section in ('left', 'center', 'right'):
+            with self.subTest(section=section), tempfile.TemporaryDirectory() as tmp:
+                config = Path(tmp) / 'config'
+                shell = config / 'omarchy/shell.json'
+                shell.parent.mkdir(parents=True)
+                vitals = {
+                    'id': 'lucas.resource-usage',
+                    'customSetting': 'keep-me',
+                    'options': {'spacing': 0, 'showLabels': False, 'metrics': ['cpu', 'ram']},
+                }
+                layout = {
+                    'left': [{'id': 'omarchy.workspaces'}],
+                    'center': [{'id': 'omarchy.clock', 'format': 'HH:mm'}],
+                    'right': [{'id': 'omarchy.network'}, {'id': 'omarchy.battery'}],
+                }
+                layout[section].insert(1, vitals)
+                original = {'version': 1, 'idle': {'lock': 300}, 'bar': {'layout': layout}}
+                shell.write_text(json.dumps(original))
+                command = [sys.executable, str(ROOT / 'install.py'), '--no-start']
+                env = dict(os.environ, XDG_CONFIG_HOME=str(config))
+                for _ in range(2):
+                    subprocess.run(command, env=env, check=True, capture_output=True)
+                    self.assertEqual(json.loads(shell.read_text()), original)
+
     def test_install_update_uninstall_preserve_other_settings(self):
         with tempfile.TemporaryDirectory(prefix='resource test ') as tmp:
             config = Path(tmp) / 'config % with spaces'

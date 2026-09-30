@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "lucas.resource-usage",
   "name": "Omarchy Vitals",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Lucas",
   "license": "MIT",
   "description": "Live CPU, memory, temperature and one-hour history in a native popup.",

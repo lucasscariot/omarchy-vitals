@@ -56,8 +56,8 @@ python3 install.py
 
 The installer backs up the affected configuration, installs the user service,
 adds Vitals to the right side of your bar, starts the collector and restarts the
-shell. An existing Vitals entry keeps its position. Settings for that entry are
-replaced by the native plugin entry; other widgets are preserved.
+shell. An existing Vitals entry keeps its position and all custom options;
+other widgets and settings are preserved.
 
 The first live reading takes about two seconds. History starts collecting at
 installation and fills while the collector runs.
@@ -97,6 +97,37 @@ The plugin is installed at
 `$XDG_CONFIG_HOME/omarchy/plugins/lucas.resource-usage` (default `~/.config`).
 The directory and manifest ID must remain `lucas.resource-usage`. That internal
 ID preserves existing installations; the project and display name are Omarchy Vitals.
+
+### Files changed by the installer
+
+Running `python3 install.py` applies the changes below. Configuration paths are
+relative to `$XDG_CONFIG_HOME`, which defaults to `~/.config`.
+
+| Path | Install or update | Uninstall |
+| --- | --- | --- |
+| `omarchy/shell.json` | Adds Vitals at the start of the right section if missing. Existing Vitals entries keep their section, position and custom options. | Removes Vitals entries. |
+| `omarchy/plugins/lucas.resource-usage/` | Copies the files listed in [`install.py`](install.py)'s `FILES` tuple when installing from another directory. Existing copies are backed up before replacement. | Retained. |
+| `systemd/user/omarchy-resource-usage.service` | Creates or replaces the collector's user service unit. | Removes the unit. |
+| `omarchy/backups/resource-usage-<timestamp>/` | Creates a backup of `shell.json`, any existing service unit, and any existing plugin files being replaced. | Creates a backup of `shell.json` and any existing service unit. All backups are retained. |
+
+Every run saves `shell.json` with normalized JSON formatting. Other configuration
+values and bar entries are preserved. The backup path is printed when the command
+finishes.
+
+Install and update reload systemd's user configuration, enable and restart the
+collector service, then restart the Omarchy shell. Uninstall disables and stops
+the service before removing its unit, reloads systemd's user configuration and
+restarts the shell.
+
+With `--no-start`, file changes and backups still happen, while all `systemctl`
+calls and the shell restart are skipped. For `--uninstall --no-start`, stop and
+disable the collector yourself before running the command:
+
+```sh
+systemctl --user disable --now omarchy-resource-usage.service
+python3 install.py --uninstall --no-start
+systemctl --user daemon-reload
+```
 
 ## Reading the numbers
 
@@ -154,9 +185,12 @@ Run from the repository or installed plugin directory:
 python3 install.py --uninstall
 ```
 
-This removes the bar entry and disables/removes the service. It keeps the plugin
-source, configuration backups and history. You can remove those directories
-afterward if desired.
+This removes all Vitals bar entries, disables and stops the collector, removes
+its user service unit and restarts the shell. It retains the installed plugin
+source, configuration backups, saved history and the last live readings. The
+live file is in the session's runtime directory; saved history survives logout.
+You can remove retained files afterward if desired. Run the uninstaller before
+deleting the plugin source so the service can be stopped and removed.
 
 ## Development
 

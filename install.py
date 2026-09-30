@@ -35,7 +35,7 @@ def configure_bar(path, remove=False):
             if isinstance(entry, dict) and entry.get('id') == PLUGIN_ID:
                 found = True
                 if not remove:
-                    updated.append({'id': PLUGIN_ID})
+                    updated.append(entry)
             else:
                 updated.append(entry)
         layout[section] = updated
