@@ -1,30 +1,52 @@
 # Omarchy Vitals
 
-A CPU, memory, and temperature widget for the Omarchy bar. Click it to open
-a native panel with overall usage and rolling one-hour history charts.
-The panel follows your Omarchy theme, including its fonts, corners, and popup
-transparency. Frost requires your Hyprland layer blur configuration.
+CPU, memory and temperature at a glance. Click the bar widget to open live
+readings and the past hour of activity.
 
-## Features
+![Omarchy Vitals on a laptop: compact bar icons and a native popup with live readings and one-hour CPU, memory and temperature charts](docs/images/overview.png)
 
-- Live CPU, RAM, and CPU temperature in the bar, updated every two seconds.
-- One-hour CPU, memory, and temperature charts with average and sampled peak.
-- Ten-second history samples, saved every 30 seconds and on clean shutdown.
-- Native popup positioning, outside-click dismissal, and Escape to close.
-- Background collection while the popup is closed; no network access.
+*Captured on an Omarchy laptop with real readings and a full hour of history.*
+
+<details>
+<summary>View the history panel up close</summary>
+
+![Vitals panel showing CPU usage, memory in GiB, CPU temperature, and three history charts with sampled averages and peaks](docs/images/history-panel.png)
+
+</details>
+
+## What you get
+
+![The Vitals bar readout, with CPU, RAM and temperature icons](docs/images/bar.png)
+
+From left to right: **CPU usage**, **RAM usage**, **CPU temperature**.
+Hover for labels; click for details.
+
+- Live readings every two seconds, with compact icons and consistent spacing.
+- A fixed bar footprint, so changing values do not move neighbouring widgets.
+  Longer readings shrink slightly to fit.
+- One-hour charts for CPU, memory and temperature, with averages and sampled peaks.
+- A native popup that follows your Omarchy colors, fonts, corners and transparency.
+  Click outside or press Escape to close it.
+- Background collection while the popup is closed. Readings stay on your machine;
+  the collector makes no network requests.
+
+If your theme uses frosted popups, Hyprland layer blur must also be configured.
 
 ## Requirements
 
-- Omarchy with its Quickshell-based shell and `qs.Ui.KeyboardPanel` plugin API.
-  Tested on the Omarchy v4 desktop installed in September 2026; older Waybar
-  installations are unsupported. These shell APIs can change between releases.
-- Linux, Python 3.10+, systemd user services, and an active graphical session.
-- Read access to `/proc/stat`, `/proc/meminfo`, and optional CPU temperature
-  sensors under `/sys`. No root access or pip dependencies are needed.
+- Omarchy with its Quickshell shell and the `qs.Ui.KeyboardPanel` and
+  `qs.Ui.OpticalGlyph` components. Tested on the Omarchy v4 desktop installed in
+  September 2026. Waybar installations are unsupported, and the shell APIs can
+  change between releases.
+- Linux, Python 3.10+, systemd user services and an active graphical session.
+- A Nerd Font installed for the bar icons. You can use another text font with
+  Nerd Font fallback.
+- Read access to `/proc/stat`, `/proc/meminfo` and optional CPU temperature
+  sensors under `/sys`.
+
+No root access or pip dependencies are needed.
 
 ## Install
-
-Clone or download this repository, then run from its directory:
 
 ```sh
 git clone https://github.com/lucasscariot/omarchy-vitals.git
@@ -32,20 +54,27 @@ cd omarchy-vitals
 python3 install.py
 ```
 
-The installer copies the plugin into
-`$XDG_CONFIG_HOME/omarchy/plugins/lucas.resource-usage` (default `~/.config`),
-installs its user service, and adds the widget to the right side of the bar.
-An existing entry keeps its position. It backs up the affected configuration,
-starts the collector, and restarts the shell. Existing plugin settings for this
-widget are replaced by its native entry; other widgets are preserved.
+The installer backs up the affected configuration, installs the user service,
+adds Vitals to the right side of your bar, starts the collector and restarts the
+shell. An existing Vitals entry keeps its position. Settings for that entry are
+replaced by the native plugin entry; other widgets are preserved.
 
-The directory and manifest ID must remain `lucas.resource-usage`.
-This stable internal ID preserves existing installations; the project and
-display name are Omarchy Vitals.
-For an update, pull the repository and rerun the installer.
+The first live reading takes about two seconds. History starts collecting at
+installation and fills while the collector runs.
 
-`python3 install.py --no-start` writes files without starting services or
-restarting the shell, for offline setup. Afterward, run:
+### Update
+
+Run from your cloned repository:
+
+```sh
+git pull --ff-only
+python3 install.py
+```
+
+### Install without starting services
+
+Use `python3 install.py --no-start` to write the files without starting services
+or restarting the shell. When you are ready:
 
 ```sh
 systemctl --user daemon-reload
@@ -53,47 +82,70 @@ systemctl --user enable --now omarchy-resource-usage.service
 omarchy restart shell
 ```
 
-## Data and interpretation
+The plugin is installed at
+`$XDG_CONFIG_HOME/omarchy/plugins/lucas.resource-usage` (default `~/.config`).
+The directory and manifest ID must remain `lucas.resource-usage`. That internal
+ID preserves existing installations; the project and display name are Omarchy Vitals.
 
-CPU use comes from deltas in `/proc/stat`; RAM is total minus available memory,
-so reclaimable cache is not counted as used. CPU usage is aggregated across all logical CPUs.
+## Reading the numbers
 
-Temperature prefers AMD `k10temp`/`zenpower` package readings or Intel
-`coretemp` package readings, falling back to core readings and recognized CPU/SoC
-thermal zones. Multiple package sensors use the hottest reading. Unknown or
-unreadable sensors display `—`; GPU and disk temperatures are not substituted.
+| Reading | What it measures |
+| --- | --- |
+| CPU | Usage across all logical CPUs, calculated from deltas in `/proc/stat`. |
+| RAM | Total minus available memory from `/proc/meminfo`, excluding reclaimable cache. The popup also shows used and total GiB. |
+| Temperature | A supported CPU package sensor, in Celsius. A dash (`—`) means no supported reading is available. |
 
-Charts begin collecting at installation. CPU history samples reflect a
-two-second measurement taken every ten seconds, so very short spikes can be
-missed. Average and peak refer to available samples, not a complete continuous
-measurement. CPU/RAM scales are 0–100%; temperature has a labeled dynamic scale.
-Sleep and shutdown leave gaps. No historical data is invented.
+Temperature prefers AMD `k10temp`/`zenpower` package readings or Intel `coretemp`
+package readings, falling back to core readings and recognized CPU/SoC thermal
+zones. Multiple package sensors use the hottest reading. GPU and disk
+temperatures are not substituted. CPU and RAM still work when temperature is
+unavailable.
 
-Live data: `$XDG_RUNTIME_DIR/omarchy-resource-usage.json`.
-History: `$XDG_STATE_HOME/omarchy/resource-usage/history.json`
-(default `~/.local/state`). Only the most recent hour is loaded and retained.
-On an abrupt shutdown, up to 30 seconds of unsaved history can be lost.
+History uses ten-second samples, saved every 30 seconds and on clean shutdown.
+Each CPU history point reflects a two-second measurement, so short spikes can
+be missed. Average and peak refer to the available samples, not a continuous
+measurement of the entire hour.
+
+CPU and RAM charts use a 0–100% scale. Temperature uses a labeled dynamic scale.
+Sleep and shutdown leave gaps; missing history is not filled in. Only the most
+recent hour is loaded and retained. An abrupt shutdown can lose up to 30 seconds
+of unsaved history.
+
+| File | Location |
+| --- | --- |
+| Live readings | `$XDG_RUNTIME_DIR/omarchy-resource-usage.json` |
+| Saved history | `$XDG_STATE_HOME/omarchy/resource-usage/history.json` (default `~/.local/state`) |
+
+## Troubleshooting
+
+Check the collector and its recent logs:
+
+```sh
+systemctl --user status omarchy-resource-usage.service
+journalctl --user -u omarchy-resource-usage.service -n 30
+```
+
+Open the panel directly:
+
+```sh
+omarchy-shell lucas.resource-usage open
+```
+
+After editing plugin code, run `omarchy restart shell` if the bar still shows
+the previous version. A missing temperature reading alone does not prevent CPU,
+RAM or history collection.
 
 ## Uninstall
+
+Run from the repository or installed plugin directory:
 
 ```sh
 python3 install.py --uninstall
 ```
 
-This removes the bar entry and disables/removes the service. It keeps the
-plugin source, configuration backups, and history so nothing personal is
-silently deleted. You can remove those directories afterward if desired.
-
-## Troubleshooting
-
-```sh
-systemctl --user status omarchy-resource-usage.service
-journalctl --user -u omarchy-resource-usage.service -n 30
-omarchy-shell lucas.resource-usage open
-```
-
-The first live reading takes about two seconds. A missing temperature alone
-does not prevent CPU, RAM, or history collection.
+This removes the bar entry and disables/removes the service. It keeps the plugin
+source, configuration backups and history. You can remove those directories
+afterward if desired.
 
 ## Development
 
@@ -103,6 +155,6 @@ python3 -m unittest discover -s tests -v
 
 The collector uses the Python standard library. Tests use synthetic sensor
 directories and temporary installation roots; they do not change desktop
-settings or start services. Visual validation still requires an Omarchy session.
+settings or start services. Visual validation requires an Omarchy session.
 
-Licensed under the MIT license.
+Licensed under the [MIT license](LICENSE).
