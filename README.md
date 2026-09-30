@@ -62,6 +62,17 @@ replaced by the native plugin entry; other widgets are preserved.
 The first live reading takes about two seconds. History starts collecting at
 installation and fills while the collector runs.
 
+### Install with Omarchy's plugin command
+
+```sh
+omarchy plugin add https://github.com/lucasscariot/omarchy-vitals.git
+python3 ~/.config/omarchy/plugins/lucas.resource-usage/install.py
+```
+
+The plugin command clones Vitals. Run `install.py` afterward to set up the
+collector service and enable the widget. This manual setup is required for live
+readings and history.
+
 ### Update
 
 Run from your cloned repository:
