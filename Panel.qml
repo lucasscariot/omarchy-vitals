@@ -10,10 +10,17 @@ Panel {
   ipcTarget: "lucas.resource-usage"
   property var sample: ({})
   property string errorText: ""
+  readonly property string cpuIcon: "" // Nerd Font: microchip
+  readonly property string memoryIcon: "" // Nerd Font: Font Awesome memory module
+  readonly property string temperatureIcon: "" // Nerd Font: thermometer half
   implicitWidth: button.implicitWidth
   implicitHeight: bar ? bar.barSize : Style.space(26)
 
   property real clockTime: Date.now() / 1000
+  function metricText(value, unit) {
+    if (value === undefined) return "…"
+    return value === null || !isFinite(value) ? "—" : Math.round(value) + unit
+  }
   function readSample() {
     try {
       var data = JSON.parse(live.text())
@@ -43,9 +50,63 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.sample.text || "CPU …  RAM …  TEMP …"
-    horizontalMargin: 8
+    labelVisible: false
+    hasVisualContent: true
+    // Keep one compact footprint; longer readings fit within it.
+    fixedWidth: Style.space(156)
+    horizontalMargin: 5
+    tooltipText: "CPU: " + root.metricText(root.sample.cpu, "%")
+        + "\nRAM: " + root.metricText(root.sample.ram, "%")
+        + "\nCPU temperature: " + root.metricText(root.sample.temperature, "°C")
     onPressed: function(b) { root.toggle() }
+
+    Row {
+      id: barReadout
+      anchors.centerIn: parent
+      spacing: 0
+      scale: Math.min(1, button.width / Math.max(1, implicitWidth))
+
+      Repeater {
+        model: [
+          { icon: root.cpuIcon, value: root.metricText(root.sample.cpu, "%") },
+          { icon: root.memoryIcon, value: root.metricText(root.sample.ram, "%") },
+          { icon: root.temperatureIcon, value: root.metricText(root.sample.temperature, "°C") }
+        ]
+        delegate: Item {
+          id: metric
+          required property var modelData
+          // Keep the compact padding identical across all readings.
+          width: metricContent.implicitWidth + button.scaledHorizontalMargin * 2
+          height: button.height
+
+          Row {
+            id: metricContent
+            x: button.scaledHorizontalMargin
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.spacing.labelGap
+
+            OpticalGlyph {
+              id: metricIcon
+              width: tightWidth
+              height: Style.bar.iconCanvas
+              text: metric.modelData.icon
+              fontFamily: button.fontFamily
+              fontSize: Style.bar.iconFont
+              color: button.foreground
+            }
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              text: metric.modelData.value
+              color: button.foreground
+              font.family: button.fontFamily
+              font.pixelSize: button.fontSize
+              font.features: ({ "tnum": 1 })
+              renderType: Text.NativeRendering
+            }
+          }
+        }
+      }
+    }
   }
 
   KeyboardPanel {
