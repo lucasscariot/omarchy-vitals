@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 Column {
   id: root
@@ -8,7 +9,7 @@ Column {
   property string title: "CPU"
   property string unit: "%"
   property real now: 0
-  property color lineColor: Color.accent
+  property color lineColor: Commons.Color.accent
   readonly property var values: points.map(p => p[metric]).filter(v => v !== null && v !== undefined && isFinite(v))
   readonly property real maximum: values.length ? Math.max.apply(null, values) : 0
   readonly property real minimum: values.length ? Math.min.apply(null, values) : 0
@@ -20,8 +21,8 @@ Column {
   onLineColorChanged: plot.requestPaint()
   Row {
     width: parent.width
-    Text { width: parent.width * 0.32; text: root.title; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; font.weight: Font.Medium }
-    Text { width: parent.width * 0.68; horizontalAlignment: Text.AlignRight; text: root.values.length ? "Avg " + Math.round(root.average) + root.unit + "  ·  Peak " + Math.round(root.maximum) + root.unit : "Collecting data…"; color: Qt.alpha(Color.foreground, 0.65); font.family: Style.font.family; font.pixelSize: Style.font.bodySmall }
+    Text { width: parent.width * 0.32; text: root.title; color: Commons.Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; font.weight: Font.Medium }
+    Text { width: parent.width * 0.68; horizontalAlignment: Text.AlignRight; text: root.values.length ? "Avg " + Math.round(root.average) + root.unit + "  ·  Peak " + Math.round(root.maximum) + root.unit : "Collecting data…"; color: Qt.alpha(Commons.Color.foreground, 0.65); font.family: Style.font.family; font.pixelSize: Style.font.bodySmall }
   }
   Canvas {
     id: plot
@@ -32,7 +33,7 @@ Column {
     onPaint: {
       var ctx = getContext("2d")
       ctx.reset()
-      ctx.strokeStyle = Qt.alpha(Color.foreground, 0.12)
+      ctx.strokeStyle = Qt.alpha(Commons.Color.foreground, 0.12)
       ctx.lineWidth = 1
       for (var i = 0; i <= 2; i++) {
         var y = 2 + (height - 4) * i / 2
@@ -68,7 +69,7 @@ Column {
   }
   Text {
     text: "0–" + root.ceiling + root.unit
-    color: Qt.alpha(Color.foreground, 0.5)
+    color: Qt.alpha(Commons.Color.foreground, 0.5)
     font.family: Style.font.family
     font.pixelSize: Style.font.bodySmall
   }
