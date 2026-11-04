@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""Run a command in its own systemd user scope so Vitals can attribute it.
+
+Usage: vitals-run [--name LABEL] [--] COMMAND [ARGS...]
+"""
+import os
+import re
+import secrets
+import shutil
+import sys
+
+USAGE = 'usage: vitals-run [--name LABEL] [--] COMMAND [ARGS...]'
+MAX_LABEL = 24
+
+
+def sanitize_label(value):
+    label = re.sub(r'[^a-z0-9]+', '-', str(value).lower()).strip('-')[:MAX_LABEL].strip('-')
+    return label or 'app'
+
+
+def build_argv(label, command, suffix=None, systemd_run='systemd-run'):
+    label = sanitize_label(label)
+    suffix = suffix or secrets.token_hex(3)
+    return [systemd_run, '--user', '--scope', '--quiet', '--collect',
+            '--unit=agent-%s-%s' % (label, suffix),
+            '--description=Vitals: %s' % label, '--'] + list(command)
+
+
+def parse(args):
+    name = None
+    args = list(args)
+    while args:
+        if args[0] == '--':
+            args.pop(0)
+            break
+        if args[0] == '--name' and len(args) > 1:
+            name = args[1]
+            del args[:2]
+        elif args[0].startswith('--name='):
+            name = args.pop(0)[7:]
+        else:
+            break
+    return name, args
+
+
+def main(args=None):
+    name, command = parse(sys.argv[1:] if args is None else args)
+    if not command:
+        print(USAGE, file=sys.stderr)
+        return 2
+    label = name if name is not None else os.path.basename(command[0])
+    systemd_run = shutil.which('systemd-run')
+    if systemd_run and os.environ.get('XDG_RUNTIME_DIR'):
+        argv = build_argv(label, command, systemd_run=systemd_run)
+    else:
+        print('vitals-run: systemd user manager not available; running without a scope', file=sys.stderr)
+        argv = command
+    try:
+        os.execvp(argv[0], argv)
+    except OSError as error:
+        print('vitals-run: %s: %s' % (argv[0], error.strerror), file=sys.stderr)
+        return 127 if isinstance(error, FileNotFoundError) else 126
+
+
+if __name__ == '__main__':
+    sys.exit(main())

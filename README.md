@@ -32,6 +32,46 @@ Hover for labels; click for details.
 
 If your theme uses frosted popups, Hyprland layer blur must also be configured.
 
+## Per-app view
+
+The popup also lists the apps using your CPU and memory, so you can see what is
+heavy and do something about it.
+
+- **Apps**: each app with its CPU and memory, measured by the kernel for its
+  systemd scope. Chromium's several scopes are grouped into one entry.
+- **Calm**: lowers an app's CPU priority (`CPUWeight=20`) so it stops crowding
+  out everything else. Click again to restore it.
+- **Freeze / Thaw**: pauses an app completely (`systemctl --user freeze`) and
+  resumes it later.
+- **Agents**: AI agents and their builds, added up in one row.
+
+Caveats:
+
+- Freezing an app also freezes its audio and calls.
+- Freeze only works on app and agent scopes, not on the whole session.
+- Agents not started with `vitals-run` are counted under whichever app launched
+  them, such as your terminal.
+
+### Tracking agents with `vitals-run`
+
+`vitals-run` starts a command in its own systemd scope. Everything the command
+spawns, like `cargo` or `node` builds, stays inside it. The installer links it to
+`~/.local/bin/vitals-run`; set `VITALS_BIN_DIR` to choose another directory. If
+systemd is unavailable it just runs the command with a warning.
+
+```sh
+vitals-run [--name LABEL] -- COMMAND [ARGS...]
+vitals-run --name build -- cargo test
+```
+
+The label defaults to the command name. Add aliases to your shell config
+(nothing is edited for you):
+
+```sh
+alias claude='vitals-run claude'
+alias codex='vitals-run codex'
+```
+
 ## Requirements
 
 - Omarchy with its Quickshell shell and the `qs.Ui.KeyboardPanel` and
@@ -107,6 +147,7 @@ relative to `$XDG_CONFIG_HOME`, which defaults to `~/.config`.
 | --- | --- | --- |
 | `omarchy/shell.json` | Adds Vitals at the start of the right section if missing. Existing Vitals entries keep their section, position and custom options. | Removes Vitals entries. |
 | `omarchy/plugins/lucas.resource-usage/` | Copies the files listed in [`install.py`](install.py)'s `FILES` tuple when installing from another directory. Existing copies are backed up before replacement. | Retained. |
+| `~/.local/bin/vitals-run` | Symlinks the launcher to the installed copy, unless a different file is already there. | Removes the symlink. |
 | `systemd/user/omarchy-resource-usage.service` | Creates or replaces the collector's user service unit. | Removes the unit. |
 | `omarchy/backups/resource-usage-<timestamp>/` | Creates a backup of `shell.json`, any existing service unit, and any existing plugin files being replaced. | Creates a backup of `shell.json` and any existing service unit. All backups are retained. |
 
