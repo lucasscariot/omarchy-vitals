@@ -3,17 +3,30 @@ import Quickshell.Io
 import qs.Commons
 import qs.Commons as Commons
 
-// Agents summary + per-app Calm/Freeze controls. Renders nothing when the
-// collector does not provide "apps"/"agents" (older collectors).
+// Agents summary + a compact apps table with Calm/Freeze icon actions.
+// Renders nothing when the collector does not provide "apps"/"agents" (older collectors).
 Column {
   id: root
   property var apps: null
   property var agents: null
   property string errorText: ""
+  property string hint: ""
   property var pending: ({})   // optimistic overrides keyed by kind:id
   property var queue: []       // queued argv arrays, run one at a time
+  readonly property int maxRows: 5
+  readonly property string calmGlyph: ""    // Nerd Font: leaf
+  readonly property string freezeGlyph: ""  // Nerd Font: snowflake
+  readonly property real cpuColumn: Style.space(44)
+  readonly property real memColumn: Style.space(58)
+  readonly property real actionSize: Style.space(22)
 
-  readonly property var appList: Array.isArray(apps) ? apps : []
+  // Agents have their own row above, so the table lists apps only. Frozen or
+  // calmed apps stay listed so Thaw/Uncalm remains reachable.
+  readonly property var appList: {
+    var all = Array.isArray(apps) ? apps.filter(a => a.kind !== "agent") : []
+    var top = all.slice(0, maxRows)
+    return top.concat(all.slice(maxRows).filter(a => stateOf(a).frozen || stateOf(a).calmed))
+  }
   readonly property bool hasAgents: agents !== null && agents !== undefined && agents.count > 0
   readonly property var busiestJob: {
     var jobs = hasAgents && Array.isArray(agents.jobs) ? agents.jobs : []
@@ -42,10 +55,13 @@ Column {
     }
   }
   function validUnits(app) {
-    var units = Array.isArray(app.units) ? app.units : []
-    if (units.length === 0) return []
-    for (var i = 0; i < units.length; i++)
-      if (typeof units[i] !== "string" || !unitPattern.test(units[i])) return []
+    // Repeater hands delegates a converted list, not a JS Array, so copy by index.
+    var source = app && app.units ? app.units : [], units = []
+    for (var i = 0; i < (source.length || 0); i++) {
+      var u = String(source[i])
+      if (!unitPattern.test(u)) return []
+      units.push(u)
+    }
     return units
   }
   function act(app, action) {
@@ -97,109 +113,148 @@ Column {
     }
   }
 
-  // Agents summary
+  // Thin divider between the metrics and the per-app section.
+  Rectangle { width: parent.width; height: 1; color: Qt.alpha(Commons.Color.foreground, 0.1) }
+
+  // Agents: one line, busiest job underneath.
   Column {
     visible: root.hasAgents
     width: parent.width
-    spacing: Style.space(4)
-    Row {
+    spacing: Style.space(2)
+    Item {
       width: parent.width
+      height: agentsLabel.implicitHeight
       Text {
-        width: parent.width * 0.3
+        id: agentsLabel
         text: "Agents"
         color: Commons.Color.foreground
-        font.family: Style.font.family; font.pixelSize: Style.font.title; font.weight: Font.Medium
+        font.family: Style.font.family; font.pixelSize: Style.font.body; font.weight: Font.Medium
       }
       Text {
-        width: parent.width * 0.7
+        anchors.right: parent.right
+        width: parent.width - agentsLabel.width - Style.space(12)
         horizontalAlignment: Text.AlignRight
+        elide: Text.ElideLeft
         text: root.hasAgents ? root.pct(root.agents.cpu) + "  ·  " + root.mem(root.agents.memory_mib) + "  ·  " + root.agents.count + " running" : ""
         color: Commons.Color.accent
-        font.family: Style.font.family; font.pixelSize: Style.font.title; font.weight: Font.Medium
+        font.family: Style.font.family; font.pixelSize: Style.font.body; font.weight: Font.Medium
         font.features: ({ "tnum": 1 })
-        elide: Text.ElideLeft
       }
     }
     Text {
       visible: root.busiestJob !== null
       width: parent.width
       elide: Text.ElideRight
-      text: root.busiestJob === null ? "" : (root.busiestJob.command || root.busiestJob.name) + (root.busiestJob.command && root.busiestJob.name ? " (" + root.busiestJob.name + ")" : "") + " " + root.pct(root.busiestJob.cpu)
-      color: Qt.alpha(Commons.Color.foreground, 0.75)
-      font.family: Style.font.family; font.pixelSize: Style.font.bodySmall
+      text: root.busiestJob === null ? "" : "busiest: " + (root.busiestJob.command || root.busiestJob.name) + (root.busiestJob.command && root.busiestJob.name ? " (" + root.busiestJob.name + ")" : "") + "  " + root.pct(root.busiestJob.cpu)
+      color: Qt.alpha(Commons.Color.foreground, 0.6)
+      font.family: Style.font.family; font.pixelSize: Style.font.caption
     }
   }
 
-  // Apps
+  // Apps table.
   Column {
     visible: root.appList.length > 0
     width: parent.width
-    spacing: Style.space(8)
-    Text { text: "Apps"; color: Commons.Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.title; font.weight: Font.Medium }
+    spacing: Style.space(2)
+
+    Item {
+      width: parent.width
+      height: appsHeader.implicitHeight + Style.space(2)
+      Text {
+        id: appsHeader
+        text: "Apps"
+        color: Commons.Color.foreground
+        font.family: Style.font.family; font.pixelSize: Style.font.body; font.weight: Font.Medium
+      }
+      Text {
+        anchors.right: parent.right
+        anchors.baseline: appsHeader.baseline
+        visible: root.hint !== ""
+        text: root.hint
+        color: Qt.alpha(Commons.Color.foreground, 0.85)
+        font.family: Style.font.family; font.pixelSize: Style.font.caption
+      }
+    }
+
     Repeater {
       model: root.appList
-      delegate: Row {
+      delegate: Item {
         id: row
         required property var modelData
         readonly property var st: root.stateOf(modelData)
         readonly property bool actionable: root.validUnits(modelData).length > 0
+        readonly property bool showActions: actionable && (rowHover.hovered || st.frozen || st.calmed)
         width: parent.width
-        spacing: Style.space(8)
-        Row {
-          width: parent.width - buttons.width - row.spacing
+        height: root.actionSize + Style.space(2)
+
+        HoverHandler { id: rowHover }
+        Rectangle {
+          anchors.fill: parent
+          radius: Style.space(5)
+          color: rowHover.hovered ? Qt.alpha(Commons.Color.foreground, 0.06) : "transparent"
+        }
+
+        Text {
+          anchors.left: parent.left
+          anchors.leftMargin: Style.space(4)
           anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(8)
+          width: parent.width - root.cpuColumn - root.memColumn - root.actionSize * 2 - Style.space(16)
+          elide: Text.ElideRight
+          text: row.modelData.name || row.modelData.id
+          color: row.st.frozen ? Qt.alpha(Commons.Color.foreground, 0.5) : Commons.Color.foreground
+          font.family: Style.font.family; font.pixelSize: Style.font.bodySmall
+        }
+        Row {
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
           Text {
-            width: parent.width - stats.implicitWidth - (frozenBadge.visible ? frozenBadge.width : 0) - parent.spacing * (frozenBadge.visible ? 2 : 1)
-            elide: Text.ElideRight
-            text: row.modelData.name || row.modelData.id
-            color: Commons.Color.foreground
-            font.family: Style.font.family; font.pixelSize: Style.font.body
-          }
-          Text {
-            id: frozenBadge
-            visible: row.st.frozen
-            text: "Frozen"
-            color: Commons.Color.accent
-            font.family: Style.font.family; font.pixelSize: Style.font.bodySmall; font.weight: Font.Medium
-          }
-          Text {
-            id: stats
-            text: root.pct(row.modelData.cpu) + "  ·  " + root.mem(row.modelData.memory_mib)
-            color: Qt.alpha(Commons.Color.foreground, 0.75)
+            width: root.cpuColumn
+            anchors.verticalCenter: parent.verticalCenter
+            horizontalAlignment: Text.AlignRight
+            text: row.st.frozen ? "frozen" : root.pct(row.modelData.cpu)
+            color: row.st.frozen ? Commons.Color.accent : Qt.alpha(Commons.Color.foreground, 0.8)
             font.family: Style.font.family; font.pixelSize: Style.font.bodySmall
             font.features: ({ "tnum": 1 })
           }
-        }
-        Row {
-          id: buttons
-          spacing: Style.space(6)
+          Text {
+            width: root.memColumn
+            anchors.verticalCenter: parent.verticalCenter
+            horizontalAlignment: Text.AlignRight
+            text: root.mem(row.modelData.memory_mib)
+            color: Qt.alpha(Commons.Color.foreground, 0.6)
+            font.family: Style.font.family; font.pixelSize: Style.font.bodySmall
+            font.features: ({ "tnum": 1 })
+          }
+          Item { width: Style.space(8); height: 1 }
           Repeater {
             model: [
-              { label: row.st.calmed ? "Uncalm" : "Calm", action: row.st.calmed ? "uncalm" : "calm" },
-              { label: row.st.frozen ? "Thaw" : "Freeze", action: row.st.frozen ? "thaw" : "freeze" }
+              { glyph: root.calmGlyph, active: row.st.calmed, action: row.st.calmed ? "uncalm" : "calm",
+                tip: (row.st.calmed ? "Restore CPU priority for " : "Calm (low CPU priority) ") + (row.modelData.name || row.modelData.id) },
+              { glyph: root.freezeGlyph, active: row.st.frozen, action: row.st.frozen ? "thaw" : "freeze",
+                tip: (row.st.frozen ? "Thaw " : "Freeze ") + (row.modelData.name || row.modelData.id) }
             ]
             delegate: Rectangle {
               id: btn
               required property var modelData
-              width: label.implicitWidth + Style.space(16)
-              height: label.implicitHeight + Style.space(8)
-              radius: Style.space(6)
-              opacity: row.actionable ? 1 : 0.4
-              color: area.containsMouse && row.actionable ? Qt.alpha(Commons.Color.foreground, 0.2) : Qt.alpha(Commons.Color.foreground, 0.1)
+              width: root.actionSize
+              height: root.actionSize
+              radius: Style.space(5)
+              opacity: row.showActions ? 1 : 0
+              color: btn.modelData.active ? Qt.alpha(Commons.Color.accent, 0.22)
+                   : area.containsMouse ? Qt.alpha(Commons.Color.foreground, 0.16) : "transparent"
               Text {
-                id: label
                 anchors.centerIn: parent
-                text: btn.modelData.label
-                color: Commons.Color.foreground
+                text: btn.modelData.glyph
+                color: btn.modelData.active ? Commons.Color.accent : Qt.alpha(Commons.Color.foreground, area.containsMouse ? 1 : 0.7)
                 font.family: Style.font.family; font.pixelSize: Style.font.bodySmall
               }
               MouseArea {
                 id: area
                 anchors.fill: parent
                 hoverEnabled: true
-                enabled: row.actionable
+                enabled: row.showActions
                 cursorShape: Qt.PointingHandCursor
+                onContainsMouseChanged: root.hint = containsMouse ? btn.modelData.tip : (root.hint === btn.modelData.tip ? "" : root.hint)
                 onClicked: root.act(row.modelData, btn.modelData.action)
               }
             }
@@ -215,6 +270,6 @@ Column {
     wrapMode: Text.WordWrap
     text: root.errorText
     color: Commons.Color.foreground
-    font.family: Style.font.family; font.pixelSize: Style.font.bodySmall
+    font.family: Style.font.family; font.pixelSize: Style.font.caption
   }
 }
