@@ -24,7 +24,7 @@ Hover for labels; click for details.
 - Live readings every two seconds, with compact icons and consistent spacing.
 - A fixed bar footprint, so changing values do not move neighbouring widgets.
   Longer readings shrink slightly to fit.
-- One-hour charts for CPU, memory and temperature, with averages and sampled peaks.
+- Each reading sits next to its one-hour chart, with the average and sampled peak.
 - A native popup that follows your Omarchy colors, fonts, corners and transparency.
   Click outside or press Escape to close it.
 - Background collection while the popup is closed. Readings stay on your machine;
@@ -39,9 +39,10 @@ heavy and do something about it.
 
 - **Apps**: each app with its CPU and memory, measured by the kernel for its
   systemd scope. Chromium's several scopes are grouped into one entry.
-- **Calm**: lowers an app's CPU priority (`CPUWeight=20`) so it stops crowding
+- Hover an app's row to show its two actions. An active action stays lit.
+- **Calm** (leaf): lowers an app's CPU priority (`CPUWeight=20`) so it stops crowding
   out everything else. Click again to restore it.
-- **Freeze / Thaw**: pauses an app completely (`systemctl --user freeze`) and
+- **Freeze / Thaw** (snowflake): pauses an app completely (`systemctl --user freeze`) and
   resumes it later.
 - **Agents**: AI agents and their builds, added up in one row.
 

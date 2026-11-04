@@ -117,7 +117,7 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keys
-    contentWidth: panel.fittedContentWidth(Style.space(480))
+    contentWidth: panel.fittedContentWidth(Style.space(420))
     contentHeight: panel.fittedContentHeight(content.implicitHeight)
     PanelKeyCatcher {
       id: keys
@@ -133,60 +133,40 @@ Panel {
       Column {
         id: content
         width: parent.width
-        spacing: Style.space(18)
-        Text {
-          text: "Vitals"
-          color: Commons.Color.foreground
-          font.family: Style.font.family
-          font.pixelSize: Style.font.heading
-          font.weight: Font.Medium
-        }
-        Repeater {
-          model: [
-            { name: "CPU", value: root.sample.cpu === undefined ? "—" : Math.round(root.sample.cpu) + "%", detail: "Across all cores", fraction: (root.sample.cpu || 0) / 100 },
-            { name: "Memory", value: root.sample.ram === undefined ? "—" : Math.round(root.sample.ram) + "%", detail: root.sample.used_gib === undefined ? "Waiting for data" : root.sample.used_gib.toFixed(1) + " / " + root.sample.total_gib.toFixed(1) + " GiB used", fraction: (root.sample.ram || 0) / 100 },
-            { name: "CPU temperature", value: root.sample.temperature == null ? "—" : Math.round(root.sample.temperature) + "°C", detail: "CPU package sensor", fraction: -1 }
-          ]
-          delegate: Column {
-            required property var modelData
-            width: content.width
-            spacing: Style.space(6)
-            Row {
-              width: parent.width
-              Text { width: parent.width * 0.7; text: modelData.name; color: Commons.Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body }
-              Text { width: parent.width * 0.3; horizontalAlignment: Text.AlignRight; text: modelData.value; color: Commons.Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; font.weight: Font.Medium }
-            }
-            Rectangle {
-              width: parent.width; height: Style.space(4); radius: height / 2
-              visible: modelData.fraction >= 0
-              color: Qt.alpha(Commons.Color.foreground, 0.12)
-              Rectangle { width: parent.width * Math.max(0, Math.min(1, modelData.fraction)); height: parent.height; radius: height / 2; color: Commons.Color.accent }
-            }
-            Text { text: modelData.detail; color: Qt.alpha(Commons.Color.foreground, 0.65); font.family: Style.font.family; font.pixelSize: Style.font.bodySmall }
-          }
-        }
-        AppList { width: parent.width; apps: root.sample.apps; agents: root.sample.agents }
-        Column {
+        spacing: Style.space(12)
+        Row {
           width: parent.width
-          spacing: Style.space(12)
-          Text { text: "Past hour"; color: Commons.Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.title; font.weight: Font.Medium }
-          HistoryChart { width: parent.width; title: "CPU"; metric: "cpu"; points: root.sample.history || []; now: root.clockTime }
-          HistoryChart { width: parent.width; title: "Memory"; metric: "ram"; points: root.sample.history || []; now: root.clockTime; lineColor: Commons.Color.background.hslLightness > 0.5 ? "#237A3B" : "#77E68C" }
-          HistoryChart { width: parent.width; title: "Temperature"; metric: "temperature"; unit: "°C"; points: root.sample.history || []; now: root.clockTime; lineColor: Commons.Color.background.hslLightness > 0.5 ? "#A64B00" : "#FF9F0A" }
-          Row {
-            width: parent.width
-            Repeater {
-              model: ["60 min ago", "30 min", "Now"]
-              Text { required property string modelData; required property int index; width: content.width / 3; text: modelData; horizontalAlignment: index === 0 ? Text.AlignLeft : index === 1 ? Text.AlignHCenter : Text.AlignRight; color: Qt.alpha(Commons.Color.foreground, 0.6); font.family: Style.font.family; font.pixelSize: Style.font.bodySmall }
-            }
+          Text {
+            width: parent.width / 2
+            text: "Vitals"
+            color: Commons.Color.foreground
+            font.family: Style.font.family
+            font.pixelSize: Style.font.heading
+            font.weight: Font.Medium
           }
           Text {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            text: (root.sample.history || []).length < 6 ? "Collecting history — charts fill as time passes." : "10-second samples · gaps indicate missing readings"
-            color: Qt.alpha(Commons.Color.foreground, 0.6); font.family: Style.font.family; font.pixelSize: Style.font.bodySmall
+            width: parent.width / 2
+            anchors.bottom: parent.bottom
+            horizontalAlignment: Text.AlignRight
+            visible: (root.sample.history || []).length < 6
+            text: "collecting history…"
+            color: Qt.alpha(Commons.Color.foreground, 0.5)
+            font.family: Style.font.family; font.pixelSize: Style.font.caption
           }
         }
+        Column {
+          width: parent.width
+          spacing: Style.space(6)
+          HistoryChart { width: parent.width; title: "CPU"; metric: "cpu"; current: root.sample.cpu; points: root.sample.history || []; now: root.clockTime }
+          HistoryChart {
+            width: parent.width; title: "Memory"; metric: "ram"; current: root.sample.ram
+            detail: root.sample.used_gib === undefined ? "" : root.sample.used_gib.toFixed(1) + "/" + root.sample.total_gib.toFixed(0) + " GiB"
+            points: root.sample.history || []; now: root.clockTime
+            lineColor: Commons.Color.background.hslLightness > 0.5 ? "#237A3B" : "#77E68C"
+          }
+          HistoryChart { width: parent.width; title: "Temperature"; metric: "temperature"; unit: "°C"; current: root.sample.temperature; points: root.sample.history || []; now: root.clockTime; lineColor: Commons.Color.background.hslLightness > 0.5 ? "#A64B00" : "#FF9F0A" }
+        }
+        AppList { width: parent.width; apps: root.sample.apps; agents: root.sample.agents }
         Text {
           visible: root.errorText !== ""
           text: root.errorText
