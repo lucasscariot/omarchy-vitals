@@ -54,6 +54,27 @@ class JobTests(unittest.TestCase):
         with mock.patch.object(jobs, 'own_cgroup', return_value=None), mock.patch.object(jobs, 'spool', side_effect=OSError('full disk')):
             self.assertEqual(jobs.supervise([sys.executable, '-c', 'raise SystemExit(7)'], 'test', 'abc', {'project': 'demo', 'project_id': 'p'}), 7)
 
+    def test_launcher_preserves_child_umask_and_private_receipts(self):
+        for worker in (False, True):
+            for mask in (0o022, 0o027):
+                with self.subTest(worker=worker, umask=oct(mask)):
+                    root = self.root / f'{worker}-{mask}'
+                    root.mkdir()
+                    env = dict(os.environ, PATH='', XDG_STATE_HOME=str(root / 'state'), XDG_RUNTIME_DIR=str(root / 'run'))
+                    script = "from pathlib import Path; import sys; root=Path(sys.argv[1]); (root/'artifact').write_text('build'); (root/'output').mkdir()"
+                    args = ['--worker', 'abc', 'build', 'p', 'demo', '--'] if worker else ['--']
+                    result = subprocess.run([sys.executable, str(ROOT / 'bin/vitals-run'), *args, sys.executable, '-c', script, str(root)],
+                                            env=env, capture_output=True, text=True, umask=mask, timeout=5)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual((root / 'artifact').stat().st_mode & 0o777, 0o666 & ~mask)
+                    self.assertEqual((root / 'output').stat().st_mode & 0o777, 0o777 & ~mask)
+                    inbox = root / 'state/omarchy/resource-usage/inbox'
+                    receipts = list(inbox.glob('*.json'))
+                    self.assertEqual(len(receipts), 2)
+                    self.assertEqual(inbox.stat().st_mode & 0o777, 0o700)
+                    for receipt in receipts:
+                        self.assertEqual(receipt.stat().st_mode & 0o777, 0o600)
+
     def test_termination_is_forwarded_and_recorded(self):
         env = dict(os.environ, PATH='')
         proc = subprocess.Popen([sys.executable, str(ROOT / 'bin/vitals-run'), '--', sys.executable, '-u', '-c', "import time; print('READY', flush=True); time.sleep(20)"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)

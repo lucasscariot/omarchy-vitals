@@ -58,7 +58,7 @@ def spool(kind, data):
 
 
 def supervise(command, label, ident, project=None):
-    os.umask(0o077)
+    caller_umask = os.umask(0o077)
     started = time.time()
     group = own_cgroup()
     unit = group.name if group else None
@@ -88,7 +88,7 @@ def supervise(command, label, ident, project=None):
     error = ''
     try:
         try:
-            child = subprocess.Popen(command)
+            child = subprocess.Popen(command, umask=caller_umask)
             code = child.wait()
         except OSError as exc:
             code, error = 127, str(exc)

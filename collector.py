@@ -403,7 +403,9 @@ class Backend:
     def tick(self):
         now, mono = time.time(), time.monotonic()
         current = cpu_times()
-        gap = now < self.last_time or now - self.last_time > 30
+        # The delay starts after collection finishes; allow work and scheduling jitter.
+        gap_limit = max(30, 2 * interval(self.settings))
+        gap = now < self.last_time or now - self.last_time > gap_limit
         cpu = utilization(self.previous['cpu'], current['cpu']) if not gap else None
         if gap:
             self.history.event(uuid.uuid4().hex, now, 'gap', {'message': 'Collection resumed after a clock change or sampling gap', 'previous_time': self.last_time})
