@@ -4,6 +4,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import signal
 import time
 
@@ -71,6 +72,156 @@ def temperature(hwmon_root=Path('/sys/class/hwmon'), thermal_root=Path('/sys/cla
     return max(fallback) if fallback else None
 
 
+CGROUP_ROOT = Path(f'/sys/fs/cgroup/user.slice/user-{os.getuid()}.slice/user@{os.getuid()}.service')
+LAUNCHERS = ('hyprland', 'niri', 'sway', 'gnome', 'kde', 'river', 'labwc', 'wayfire', 'i3', 'openbox', 'uwsm')
+UNIT_SUFFIX = re.compile(r'-(?:\d+|[0-9a-fA-F]{8})$')
+
+
+def unescape_unit(name):
+    return re.sub(r'\\x([0-9a-fA-F]{2})', lambda m: chr(int(m.group(1), 16)), name)
+
+
+def classify_unit(unit):
+    """Return (kind, id, display name) for an app/agent unit, or None to ignore it."""
+    name = unescape_unit(unit)
+    if name.startswith('agent-') and name.endswith('.scope'):
+        label = name[len('agent-'):-len('.scope')]
+        if '-' in label:
+            label = label.rsplit('-', 1)[0]
+        return ('agent', label.lower(), label) if label else None
+    if name.startswith('hc-') and name.endswith('.service'):
+        return ('agent', 'herdr', 'herdr')
+    if name.startswith('app-') and name.endswith('.scope'):
+        ident = name[len('app-'):-len('.scope')]
+        ident = UNIT_SUFFIX.sub('', ident)
+        head, _, rest = ident.partition('-')
+        if rest and head.lower() in LAUNCHERS:
+            ident = rest
+        ident = ident.replace('-surface-transient', '')
+        if '.' in ident:
+            ident = ident.rsplit('.', 1)[1]
+        if not ident:
+            return None
+        return ('app', ident.lower(), ident[0].upper() + ident[1:])
+    return None
+
+
+def find_units(root):
+    units = []
+    try:
+        entries = list(os.scandir(root))
+    except OSError:
+        return units
+    for entry in entries:
+        try:
+            if not entry.is_dir(follow_symlinks=False):
+                continue
+        except OSError:
+            continue
+        if entry.name.endswith(('.scope', '.service')):
+            if classify_unit(entry.name):
+                units.append(Path(entry.path))
+        else:
+            units.extend(find_units(entry.path))
+    return units
+
+
+def read_int(path, default=None):
+    try:
+        return int(Path(path).read_text().split()[0])
+    except (OSError, ValueError, IndexError):
+        return default
+
+
+def read_usage(path):
+    try:
+        for line in (Path(path) / 'cpu.stat').read_text().splitlines():
+            if line.startswith('usage_usec'):
+                return int(line.split()[1])
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def busiest_command(unit, proc_root=Path('/proc')):
+    """Best-effort short command of the unit's most CPU-hungry process."""
+    try:
+        pids = (unit / 'cgroup.procs').read_text().split()
+    except OSError:
+        return None
+    best, best_ticks = None, -1
+    for pid in pids:
+        try:
+            fields = (proc_root / pid / 'stat').read_text().rsplit(')', 1)[1].split()
+            ticks = int(fields[11]) + int(fields[12])
+        except (OSError, ValueError, IndexError):
+            continue
+        if ticks > best_ticks:
+            best, best_ticks = pid, ticks
+    if best is None:
+        return None
+    try:
+        words = [w for w in (proc_root / best / 'cmdline').read_text().split('\0') if w][:2]
+        if words:
+            words[0] = os.path.basename(words[0]) or words[0]
+            return ' '.join(words)[:60]
+    except OSError:
+        pass
+    try:
+        return (proc_root / best / 'comm').read_text().strip() or None
+    except OSError:
+        return None
+
+
+def app_snapshot(state, now, root=None, proc_root=Path('/proc')):
+    """Per-app and per-agent usage from systemd user cgroups. `state` carries usage between calls."""
+    root = Path(CGROUP_ROOT if root is None else root)
+    if not root.is_dir():
+        state.clear()
+        return [], None
+    previous, previous_time = state.get('usage', {}), state.get('time')
+    elapsed = now - previous_time if previous_time is not None else 0
+    usage, apps, agent_units = {}, {}, []
+    for path in find_units(root):
+        kind, ident, display = classify_unit(path.name)
+        current = read_usage(path)
+        cpu = 0.0
+        if current is not None:
+            usage[str(path)] = current
+            before = previous.get(str(path))
+            if before is not None and elapsed > 0 and current >= before:
+                cpu = (current - before) / (elapsed * 1e6) * 100
+        memory = (read_int(path / 'memory.current', 0) or 0) / 1048576
+        weight = read_int(path / 'cpu.weight')
+        frozen = read_int(path / 'cgroup.freeze', 0) == 1
+        calmed = weight is not None and weight < 100
+        app = apps.setdefault((kind, ident), {'id': ident, 'name': display, 'kind': kind, 'cpu': 0.0,
+                                              'mem': 0.0, 'units': [], 'frozen': False, 'calmed': False})
+        app['cpu'] += cpu
+        app['mem'] += memory
+        app['units'].append(path.name)
+        app['frozen'] = app['frozen'] or frozen
+        app['calmed'] = app['calmed'] or calmed
+        if kind == 'agent':
+            agent_units.append((cpu, memory, path))
+    state['usage'], state['time'] = usage, now
+    ranked = sorted(apps.values(), key=lambda a: (-a['cpu'], -a['mem']))[:8]
+    out_apps = [{'id': a['id'], 'name': a['name'], 'kind': a['kind'], 'cpu': round(a['cpu'], 1),
+                 'memory_mib': int(a['mem']), 'units': sorted(a['units']), 'frozen': a['frozen'],
+                 'calmed': a['calmed']} for a in ranked]
+    agent_units.sort(key=lambda u: (-u[0], -u[1]))
+    jobs = []
+    for cpu, memory, path in agent_units[:5]:
+        kind, ident, display = classify_unit(path.name)
+        jobs.append({'unit': path.name, 'name': 'herdr' if path.name.startswith('hc-') else display,
+                     'cpu': round(cpu, 1), 'memory_mib': int(memory),
+                     'command': busiest_command(path, proc_root)})
+    agents = {'cpu': round(sum(u[0] for u in agent_units), 1),
+              'memory_mib': int(sum(u[1] for u in agent_units)),
+              'count': len(agent_units), 'jobs': jobs}
+    return out_apps, agents
+
+
 def trim(history, now):
     return [p for p in history if now - 3600 <= p['time'] <= now][-361:]
 
@@ -115,6 +266,7 @@ def run():
     last_history = 0
     last_save = 0
     previous_time = time.time()
+    app_state = {}
     while not stopping:
         time.sleep(2)
         now = time.time()
@@ -137,7 +289,11 @@ def run():
             history.append(point)
             last_history = now
         temp_text = f'{temp:.0f}°C' if temp is not None else '—'
-        write_json(LIVE, dict(point, cores=cores, history=history,
+        try:
+            apps, agents = app_snapshot(app_state, now)
+        except Exception:
+            apps, agents = [], None
+        write_json(LIVE, dict(point, cores=cores, apps=apps, agents=agents, history=history,
                              used_gib=used / 1048576, total_gib=memory['MemTotal'] / 1048576,
                              text=f'CPU {cpu:.0f}%  RAM {ram:.0f}%  TEMP {temp_text}'))
         if now - last_save >= 30:
