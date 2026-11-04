@@ -113,6 +113,18 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(len(apps), 8)
         self.assertEqual(apps[0]['id'], 'x11')
 
+    def test_frozen_and_calmed_kept_past_top_eight(self):
+        for i in range(10):
+            unit(self.root, f'app.slice/app-x{i}-{i}.scope', 0, (i + 10) * MIB)
+        unit(self.root, 'app.slice/app-iced-1.scope', 0, 0, freeze=1)
+        unit(self.root, 'app.slice/app-slow-2.scope', 0, 0, weight=20)
+        unit(self.root, 'app.slice/app-plain-3.scope', 0, 0)
+        apps, _ = collector.app_snapshot({}, 0, root=self.root)
+        ids = [a['id'] for a in apps]
+        self.assertEqual(len(ids), 10)
+        self.assertEqual(ids[:8], [f'x{i}' for i in range(9, 1, -1)])
+        self.assertEqual(set(ids[8:]), {'iced', 'slow'})
+
     def test_agent_jobs(self):
         for pid, ticks, argv in ((11, (5, 5), b'/usr/bin/claude\0--resume\0x\0'), (12, (500, 100), b'/usr/bin/cargo\0test\0--all\0')):
             d = self.proc / str(pid)

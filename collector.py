@@ -205,7 +205,9 @@ def app_snapshot(state, now, root=None, proc_root=Path('/proc')):
         if kind == 'agent':
             agent_units.append((cpu, memory, path))
     state['usage'], state['time'] = usage, now
-    ranked = sorted(apps.values(), key=lambda a: (-a['cpu'], -a['mem']))[:8]
+    ordered = sorted(apps.values(), key=lambda a: (-a['cpu'], -a['mem']))
+    # Frozen or calmed apps stay listed past the top eight so Thaw/Uncalm remains reachable.
+    ranked = ordered[:8] + [a for a in ordered[8:] if a['frozen'] or a['calmed']]
     out_apps = [{'id': a['id'], 'name': a['name'], 'kind': a['kind'], 'cpu': round(a['cpu'], 1),
                  'memory_mib': int(a['mem']), 'units': sorted(a['units']), 'frozen': a['frozen'],
                  'calmed': a['calmed']} for a in ranked]
