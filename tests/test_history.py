@@ -1,9 +1,10 @@
+from contextlib import closing
 import json
 from pathlib import Path
 import tempfile
 import unittest
 
-from vitals.history import History
+from vitals.history import History, combine
 
 
 class HistoryTests(unittest.TestCase):
@@ -109,6 +110,42 @@ class HistoryTests(unittest.TestCase):
         event = self.history.query(0, 100001)['events'][0]
         self.assertEqual(event['after']['cpu'], 15)
         self.assertTrue(event['after_captured'])
+
+    def test_slow_sampling_keeps_cadence_through_storage_and_rollups(self):
+        for i in range(8):
+            self.history.add(100 + i * 30.25, {'cpu': 20 + i}, [], gap_limit=60)
+        self.history.flush()
+        with closing(History(self.history.path)) as reopened:
+            points = reopened.query(0, 500)['points']
+            self.assertEqual(len(points), 8)
+            self.assertTrue(all(p['gap_limit'] == 60 for p in points))
+            self.assertTrue(all(p['contiguous'] for p in points))
+            reopened.maintain(100000)
+            points = reopened.query(0, 100001)['points']
+            self.assertTrue(all(p['contiguous'] for p in points))
+            self.assertTrue(all(p['gap_limit'] == 60 for p in points))
+
+    def test_slow_sampling_still_retains_real_gaps_after_rollup(self):
+        for timestamp in (100, 130.25, 191.25):
+            self.history.add(timestamp, {'cpu': 20}, [], gap_limit=60)
+        self.history.maintain(100000)
+        point = self.history.query(0, 100001)['points'][0]
+        self.assertFalse(point['contiguous'])
+        self.assertEqual(point['count'], 3)
+
+    def test_cadence_changes_use_the_following_samples_limit_and_legacy_default(self):
+        def sample(timestamp, limit=None):
+            row = dict(first=timestamp, last=timestamp, count=1, values={'cpu': 20})
+            if limit is not None:
+                row['gap_limit'] = limit
+            return row
+        # An older fast sample can connect to a later slow sample. The rolled
+        # up row keeps the limit of its first sample for its incoming edge.
+        combined = combine([sample(100), sample(130.25, 60)], 100, 60)
+        self.assertTrue(combined['contiguous'])
+        self.assertEqual(combined['gap_limit'], 30)
+        self.assertFalse(combine([sample(100, 60), sample(130.25, 30)], 100, 60)['contiguous'])
+        self.assertFalse(combine([sample(100), sample(130.25)], 100, 60)['contiguous'])
 
     def test_storage_budget_includes_reports_and_events(self):
         self.history.budget_mib = 1  # Small synthetic budget to force pruning quickly.

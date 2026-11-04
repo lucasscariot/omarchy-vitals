@@ -42,10 +42,14 @@ def combine(rows, start, resolution):
         for app in sorted(contributors.values(), key=lambda a: -a[key])[:12]:
             chosen[app['id']] = app
     ordered = sorted(rows, key=lambda r: r['first'])
-    contiguous = all(r.get('contiguous', True) for r in rows) and all(b['first'] - a['last'] <= 30 for a, b in zip(ordered, ordered[1:]))
+    contiguous = all(r.get('contiguous', True) for r in rows) and all(
+        b['first'] - a['last'] <= b.get('gap_limit', 30) for a, b in zip(ordered, ordered[1:]))
     return {'time': start, 'resolution': resolution, 'values': values, 'peaks': peaks,
             'minima': minima, 'weights': weights, 'count': sum(r['count'] for r in rows),
             'first': min(r['first'] for r in rows), 'last': max(r['last'] for r in rows),
+            # The first sample's cadence governs the incoming edge, even after
+            # coarsening or a later refresh-policy change. Older rows use 30s.
+            'gap_limit': ordered[0].get('gap_limit', 30),
             'contiguous': contiguous, 'contributors': list(chosen.values())}
 
 
@@ -76,13 +80,13 @@ class History:
         self.pending = []
         self.bucket = None
 
-    def add(self, timestamp, values, contributors):
+    def add(self, timestamp, values, contributors, *, gap_limit=30):
         bucket = int(timestamp // 10) * 10
         if self.bucket is not None and bucket != self.bucket:
             self.flush()
         self.bucket = bucket
         self.pending.append({'values': values, 'count': 1, 'first': timestamp,
-                             'last': timestamp, 'contributors': contributors})
+                             'last': timestamp, 'gap_limit': gap_limit, 'contributors': contributors})
 
     def flush(self):
         if not self.pending:

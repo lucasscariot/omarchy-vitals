@@ -1,4 +1,5 @@
 """Render all views with private XDG roots; substitute only the layer-shell surface."""
+import json
 import math
 import os
 from pathlib import Path
@@ -25,6 +26,8 @@ ShellRoot {
       id: stage; anchors.fill: parent; color: "#1e1e2e"
       Vitals.Panel { id: panel; x: 20; y: 20; service: backend }
     }
+    Vitals.GlanceChart { id: glanceProbe; visible: false; width: 400 }
+    Vitals.HistoryChart { id: historyProbe; visible: false; width: 400 }
   }
   property var pages: ["Overview", "Apps", "Agents", "Hardware", "History", "Timeline", "Jobs", "Settings"]
   property int pageIndex: -1
@@ -33,6 +36,15 @@ ShellRoot {
     onTriggered: {
       if (pageIndex === -1) {
         if (!backend.sample.time) { console.error("SMOKE_NO_SAMPLE " + backend.errorText); Qt.quit(); return }
+        var cases = JSON.parse(Quickshell.env("VITALS_SMOKE_CADENCE"))
+        for (var chart of [glanceProbe, historyProbe]) {
+          for (var fixture of cases) {
+            if (chart.canConnect(fixture.previous, fixture.point) !== fixture.expected) {
+              console.error("SMOKE_CADENCE_FAILED " + fixture.name); Qt.quit(); return
+            }
+          }
+        }
+        console.log("SMOKE_CADENCE_OK")
         panel.open(); backend.refreshHistory()
       }
       pageIndex++
@@ -104,11 +116,26 @@ def main():
         (root / 'shell.qml').write_text(HARNESS)
         (root / 'run').mkdir(mode=0o700)
         now = time.time()
+        cadence = History(root / 'cadence.sqlite3')
+        for delta, limit in ((0, 60), (30.25, 60), (91.25, 60), (121.5, 30), (151.5, 30)):
+            cadence.add(now - 1000 + delta, {'cpu': 20}, [], gap_limit=limit)
+        points = cadence.query(now - 1001, now)['points']
+        cadence.close()
+        cases = [dict(name=name, previous=points[i], point=points[i+1], expected=expected)
+                 for i, (name, expected) in enumerate((('slow', True), ('pause', False),
+                                                       ('policy-change', False), ('fast', True)))]
+        legacy = dict(points[1]); legacy.pop('gap_limit')
+        cases.append(dict(name='legacy', previous=points[0], point=legacy, expected=False))
+        cases.append(dict(name='first', previous=None, point=points[0], expected=False))
+        cases.append(dict(name='internal-gap', previous=points[0],
+                          point=dict(points[1], contiguous=False), expected=False))
         history = History(root / 'state/omarchy/resource-usage/history.sqlite3')
-        for delta in range(3590, 0, -10):
+        for tick in range(118, 0, -1):
+            delta = tick * 30.25
             cpu = 35 + 25 * math.sin(delta / 180)
             history.add(now - delta, {'cpu': cpu, 'ram': 55, 'temperature': 48},
-                        [{'id': 'demo-build', 'name': 'build', 'project': 'demo', 'cpu': cpu, 'memory_mib': 250, 'io_bps': 0}])
+                        [{'id': 'demo-build', 'name': 'build', 'project': 'demo', 'cpu': cpu, 'memory_mib': 250, 'io_bps': 0}],
+                        gap_limit=60)
         for i in (1, 2):
             report = dict(id=f'demo-{i}', label='build', project='demo', project_id='demo',
                           started=now-300+i, ended=now-280+i, duration=20, cpu_seconds=8+i,
@@ -124,13 +151,13 @@ def main():
                    QT_QUICK_CONTROLS_STYLE='Basic', QML_IMPORT_PATH=str(root), DISPLAY='', WAYLAND_DISPLAY='',
                    XDG_CONFIG_HOME=str(root / 'config'), XDG_STATE_HOME=str(root / 'state'),
                    XDG_CACHE_HOME=str(root / 'cache'), XDG_RUNTIME_DIR=str(root / 'run'),
-                   VITALS_SMOKE_OUTPUT=str(output))
+                   VITALS_SMOKE_OUTPUT=str(output), VITALS_SMOKE_CADENCE=json.dumps(cases))
         result = subprocess.run(['qs', '-p', str(root / 'shell.qml'), '--no-color'], env=env,
                                 capture_output=True, text=True, timeout=25)
         log = result.stdout + result.stderr
         (output / 'render.log').write_text(log)
         errors = [line for line in log.splitlines() if ('ERROR' in line and 'Failed to start IPC server' not in line) or 'WARN scene:' in line]
-        if result.returncode or 'SMOKE_PAGES_OK' not in log or errors:
+        if result.returncode or 'SMOKE_PAGES_OK' not in log or 'SMOKE_CADENCE_OK' not in log or errors:
             raise SystemExit('\n'.join(errors) or log)
         if len(list(output.glob('*.png'))) != 8:
             raise SystemExit('Not every view produced a preview')

@@ -7,10 +7,12 @@ This is an API check against that installation, not a release compatibility matr
 
 ## Automated checks
 
-- 52 Python unit/integration tests: collector normalization, app grouping, unique
+- 55 Python unit/integration tests: collector normalization, app grouping, unique
   agent sessions, counter resets, stale scope rejection, history migration,
   rollups, extrema, sampling gaps, storage budgets, action observations,
-  missing completion receipts, settings and legacy service migration.
+  missing completion receipts, settings and legacy service migration. Cadence
+  coverage checks 30-second refresh with scheduling overhead, policy changes,
+  persistence and rollups, legacy rows and real sampling gaps.
 - Launcher checks exercise actual exit codes, terminal inheritance, signal
   forwarding, short jobs and recording failures in temporary state directories.
 - `omarchy plugin validate .` passes.
@@ -21,7 +23,8 @@ This is an API check against that installation, not a release compatibility matr
   Timeline, Jobs and Settings without QML runtime errors. It uses synthetic
   historical/job fixtures, live read-only system readings and private XDG roots.
   Reopening from an advanced view also verifies the compact overview and one-hour
-  history range are restored.
+  history range are restored. Both chart components check connections against
+  stored cadence fixtures; rendered history uses samples 30.25 seconds apart.
 
 The offscreen renderer substitutes only `KeyboardPanel`'s compositor surface.
 These automated checks leave desktop configuration and running apps alone.

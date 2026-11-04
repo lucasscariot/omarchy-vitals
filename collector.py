@@ -454,7 +454,7 @@ class Backend:
         contributions = [dict(id=a['kind'] + ':' + a['id'], name=a['name'], kind=a['kind'],
                               project=a['project'], project_id=a['project_id'], cpu=a['cpu'],
                               memory_mib=a['memory_mib'], io_bps=a['io_bps']) for a in apps]
-        self.history.add(now, values, contributions)
+        self.history.add(now, values, contributions, gap_limit=gap_limit)
         for incident in self.incidents.update(dict(values, time=now), self.settings['sensitivity']):
             self.history.event(incident['id'], incident['time'], 'incident', incident)
             if self.settings['notifications'] and incident['status'] == 'Active' and not incident.get('_notified'):

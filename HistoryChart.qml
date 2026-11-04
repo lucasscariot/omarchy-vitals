@@ -37,6 +37,9 @@ Column {
     var t = now - range + range * x / width
     return points.find(p => t >= p.time && t < p.time + p.resolution) || null
   }
+  function canConnect(previous, point) {
+    return !!previous && point.contiguous && previous.contiguous && point.first - previous.last <= (point.gap_limit || 30)
+  }
   onPointsChanged: plot.requestPaint()
   onNowChanged: plot.requestPaint()
   onRangeChanged: plot.requestPaint()
@@ -64,7 +67,7 @@ Column {
         var x = width * (p.first - (root.now - root.range)) / root.range
         var py = height - 1 - Math.max(0, Math.min(root.ceiling, v)) / root.ceiling * (height - 2)
         if (x < 0 || x > width) { previous = null; continue }
-        if (!previous || !p.contiguous || !previous.contiguous || p.first - previous.last > 30) ctx.moveTo(x, py)
+        if (!root.canConnect(previous, p)) ctx.moveTo(x, py)
         else ctx.lineTo(x, py)
         previous = p
       }

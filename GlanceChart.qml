@@ -24,6 +24,9 @@ Item {
   implicitHeight: Math.max(labels.implicitHeight, Style.space(48))
   function convert(v) { return metric === "temperature" && temperatureUnit === "F" ? v * 1.8 + 32 : v }
   function formatted(v) { return v === undefined ? "…" : v === null || !isFinite(v) ? "—" : Math.round(convert(v)) + (metric === "temperature" ? "°" + temperatureUnit : "%") }
+  function canConnect(previous, point) {
+    return !!previous && point.contiguous && previous.contiguous && point.first - previous.last <= (point.gap_limit || 30)
+  }
   onPointsChanged: plot.requestPaint()
   onNowChanged: plot.requestPaint()
   onLineColorChanged: plot.requestPaint()
@@ -54,7 +57,7 @@ Item {
         var x = width * (p.first - (root.now - 3600)) / 3600
         if (x < 0 || x > width) { previous = null; continue }
         var y = height - 2 - Math.max(0, Math.min(root.ceiling, value)) / root.ceiling * (height - 4)
-        if (!previous || !p.contiguous || !previous.contiguous || p.first - previous.last > 30) ctx.moveTo(x, y)
+        if (!root.canConnect(previous, p)) ctx.moveTo(x, y)
         else ctx.lineTo(x, y)
         previous = p; lastX = x; lastY = y
       }

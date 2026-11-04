@@ -70,7 +70,9 @@ class BackendTests(unittest.TestCase):
                         self.assertEqual(backend.sample['gap'], gap)
                         self.assertEqual(backend.sample['cpu'], None if gap else 80)
                         self.assertEqual(bool(backend.app_state), not gap)
-                        events = backend.history.query(0, 2000)['events']
+                        history = backend.history.query(0, 2000)
+                        self.assertEqual(history['points'][0]['gap_limit'], max(30, 2 * seconds))
+                        events = history['events']
                         self.assertEqual(len([event for event in events if event['kind'] == 'gap']), int(gap))
                     finally:
                         backend.history.close()
