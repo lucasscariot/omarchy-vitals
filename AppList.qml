@@ -1,303 +1,111 @@
 import QtQuick
-import Quickshell.Io
+import Quickshell
 import qs.Commons
 import qs.Commons as Commons
 
-// Agents summary + a compact apps table with Calm/Freeze icon actions.
-// Renders nothing when the collector does not provide "apps"/"agents" (older collectors).
 Column {
   id: root
-  property var apps: null
-  property var agents: null
-  property string errorText: ""
-  property string hint: ""
-  property var pending: ({})   // optimistic overrides keyed by kind:id
-  property var queue: []       // queued argv arrays, run one at a time
-  readonly property int maxRows: 5
-  readonly property string calmGlyph: ""    // Nerd Font: leaf
-  readonly property string freezeGlyph: ""  // Nerd Font: snowflake
-  readonly property real cpuColumn: Style.space(44)
-  readonly property real memColumn: Style.space(58)
-  readonly property real actionSize: Style.space(22)
-
-  // Agents have their own row above, so the table lists apps only. Frozen or
-  // calmed apps stay listed so Thaw/Uncalm remains reachable.
-  readonly property var appList: {
-    var all = Array.isArray(apps) ? apps.filter(a => a.kind !== "agent") : []
-    var top = all.slice(0, maxRows)
-    return top.concat(all.slice(maxRows).filter(a => stateOf(a).frozen || stateOf(a).calmed))
+  property var service: null
+  property bool agentsOnly: false
+  property bool compact: false
+  property string query: ""
+  property string sortKey: "cpu"
+  property string selected: ""
+  signal showAll()
+  signal revealRequested(real top, real bottom)
+  readonly property var rows: {
+    var sample = service ? service.sample : ({})
+    var list = (sample.apps || []).concat(agentsOnly ? sample.inferred || [] : []).filter(a => (a.kind === "agent") === agentsOnly)
+    list = list.filter(a => ((a.name || "") + " " + (a.project || "")).toLowerCase().includes(query.toLowerCase()))
+    list.sort((a, b) => (b[sortKey] || 0) - (a[sortKey] || 0) || a.id.localeCompare(b.id))
+    return compact ? list.slice(0, 5).concat(list.slice(5).filter(a => a.frozen || a.calmed)) : list
   }
-  readonly property bool hasAgents: agents !== null && agents !== undefined && agents.count > 0
-  readonly property var busiestJob: {
-    var jobs = hasAgents && Array.isArray(agents.jobs) ? agents.jobs : []
-    var best = null
-    for (var i = 0; i < jobs.length; i++)
-      if (best === null || (jobs[i].cpu || 0) > (best.cpu || 0)) best = jobs[i]
-    return best
+  spacing: Style.space(5)
+  activeFocusOnTab: !compact
+  onSelectedChanged: Qt.callLater(function() {
+    var index = rows.findIndex(a => a.id === selected), item = appRows.itemAt(index)
+    if (item) revealRequested(item.y, item.y + item.height)
+  })
+  function mem(mib) { return mib === undefined || mib === null ? "—" : mib >= 1024 ? (mib / 1024).toFixed(1) + " GiB" : Math.round(mib) + " MiB" }
+  function choose(delta) {
+    var index = rows.findIndex(a => a.id === selected)
+    if (rows.length) selected = rows[Math.max(0, Math.min(rows.length - 1, index + delta))].id
   }
-  readonly property var unitPattern: /^((app|agent)-.+\.scope|hc-.+\.service)$/
-
-  visible: hasAgents || appList.length > 0
-  spacing: Style.space(10)
-
-  onAppsChanged: pending = ({})
-
-  function mem(mib) {
-    if (mib === undefined || mib === null || !isFinite(mib)) return "—"
-    return mib >= 1024 ? (mib / 1024).toFixed(1) + " GB" : Math.round(mib) + " MB"
+  function selectedAction(action) {
+    var app = rows.find(a => a.id === selected)
+    if (app && !app.inferred && service) service.act(app, action)
   }
-  function pct(v) { return v === undefined || v === null || !isFinite(v) ? "—" : Math.round(v) + "%" }
-  function stateOf(app) {
-    var o = pending[app.kind + ':' + app.id] || {}
-    return {
-      frozen: o.frozen !== undefined ? o.frozen : app.frozen === true,
-      calmed: o.calmed !== undefined ? o.calmed : app.calmed === true
-    }
+  Keys.onDownPressed: choose(1)
+  Keys.onUpPressed: choose(-1)
+  Keys.onPressed: function(event) {
+    var app = rows.find(a => a.id === selected)
+    if (event.key === Qt.Key_C && app) { selectedAction(app.calmed ? "uncalm" : "calm"); event.accepted = true }
+    if (event.key === Qt.Key_F && app) { selectedAction(app.frozen ? "thaw" : "freeze"); event.accepted = true }
   }
-  function validUnits(app) {
-    // Repeater hands delegates a converted list, not a JS Array, so copy by index.
-    var source = app && app.units ? app.units : [], units = []
-    for (var i = 0; i < (source.length || 0); i++) {
-      var u = String(source[i])
-      if (!unitPattern.test(u)) return []
-      units.push(u)
-    }
-    return units
-  }
-  function act(app, action) {
-    var units = validUnits(app)
-    if (units.length === 0) { errorText = "Refusing: unsupported unit for " + app.name; errorClear.restart(); return }
-    var q = queue.slice()
-    for (var i = 0; i < units.length; i++) {
-      var u = units[i], argv
-      if (action === "calm") argv = ["systemctl", "--user", "set-property", "--runtime", u, "CPUWeight=20"]
-      else if (action === "uncalm") argv = ["systemctl", "--user", "set-property", "--runtime", u, "CPUWeight=100"]
-      else if (action === "freeze") argv = ["systemctl", "--user", "freeze", u]
-      else if (action === "thaw") argv = ["systemctl", "--user", "thaw", u]
-      else return
-      q.push(argv)
-    }
-    var p = Object.assign({}, pending), key = app.kind + ':' + app.id, o = Object.assign({}, p[key] || {})
-    if (action === "calm") o.calmed = true
-    if (action === "uncalm") o.calmed = false
-    if (action === "freeze") o.frozen = true
-    if (action === "thaw") o.frozen = false
-    p[key] = o
-    pending = p
-    queue = q
-    next()
-  }
-  function next() {
-    if (runner.running || queue.length === 0) return
-    var q = queue.slice()
-    runner.command = q.shift()
-    queue = q
-    runner.running = true
-  }
-
-  Timer { id: errorClear; interval: 6000; onTriggered: root.errorText = "" }
-
-  Process {
-    id: runner
-    stderr: StdioCollector { id: errOut }
-    onExited: function(exitCode, exitStatus) {
-      if (exitCode !== 0) {
-        var msg = errOut.text.trim().split("\n")[0]
-        root.errorText = "systemctl failed (" + exitCode + ")" + (msg ? ": " + msg : "")
-        root.pending = ({})
-        root.queue = []
-        errorClear.restart()
-      } else {
-        root.next()
-      }
-    }
-  }
-
-  // Thin divider between the metrics and the per-app section.
-  Rectangle { width: parent.width; height: 1; color: Qt.alpha(Commons.Color.foreground, 0.1) }
-
-  // Agents: one line, busiest job underneath.
-  Column {
-    visible: root.hasAgents
+  Rectangle {
+    visible: !root.compact
     width: parent.width
-    spacing: Style.space(2)
-    Item {
-      width: parent.width
-      height: agentsLabel.implicitHeight
-      Text {
-        id: agentsLabel
-        text: "Agents"
-        color: Commons.Color.foreground
-        font.family: Style.font.family; font.pixelSize: Style.font.body; font.weight: Font.Medium
-      }
-      Text {
-        anchors.right: parent.right
-        width: parent.width - agentsLabel.width - Style.space(12)
-        horizontalAlignment: Text.AlignRight
-        elide: Text.ElideLeft
-        text: root.hasAgents ? root.pct(root.agents.cpu) + "  ·  " + root.mem(root.agents.memory_mib) + "  ·  " + root.agents.count + " running" : ""
-        color: Commons.Color.accent
-        font.family: Style.font.family; font.pixelSize: Style.font.body; font.weight: Font.Medium
-        font.features: ({ "tnum": 1 })
-      }
-    }
-    Text {
-      visible: root.busiestJob !== null
-      width: parent.width
-      elide: Text.ElideRight
-      text: root.busiestJob === null ? "" : "busiest: " + (root.busiestJob.command || root.busiestJob.name) + (root.busiestJob.command && root.busiestJob.name ? " (" + root.busiestJob.name + ")" : "") + "  " + root.pct(root.busiestJob.cpu)
-      color: Qt.alpha(Commons.Color.foreground, 0.6)
-      font.family: Style.font.family; font.pixelSize: Style.font.caption
+    height: Style.space(32)
+    radius: Style.space(5)
+    color: Qt.alpha(Commons.Color.foreground, 0.06)
+    TextInput {
+      anchors.fill: parent; anchors.margins: Style.space(6)
+      color: Commons.Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.bodySmall
+      selectByMouse: true; clip: true
+      activeFocusOnTab: true
+      onTextChanged: root.query = text
+      VText { visible: !parent.text && !parent.activeFocus; text: "Search " + (root.agentsOnly ? "agents or projects…" : "apps…"); muted: true }
     }
   }
-
-  // Apps table.
-  Column {
-    visible: root.appList.length > 0
-    width: parent.width
-    spacing: Style.space(2)
-
-    Item {
-      width: parent.width
-      height: appsHeader.implicitHeight + Style.space(2)
-      Text {
-        id: appsHeader
-        text: "Apps"
-        color: Commons.Color.foreground
-        font.family: Style.font.family; font.pixelSize: Style.font.body; font.weight: Font.Medium
-      }
-      Text {
-        anchors.right: parent.right
-        anchors.baseline: appsHeader.baseline
-        visible: root.hint !== ""
-        text: root.hint
-        color: Qt.alpha(Commons.Color.foreground, 0.85)
-        font.family: Style.font.family; font.pixelSize: Style.font.caption
-      }
-    }
-
+  Flow {
+    visible: !root.compact
+    width: parent.width; spacing: Style.space(5)
     Repeater {
-      model: root.appList
-      delegate: Item {
-        id: row
-        required property var modelData
-        readonly property var st: root.stateOf(modelData)
-        readonly property bool actionable: root.validUnits(modelData).length > 0
-        readonly property bool showActions: actionable && rowHover.hovered
-        readonly property string label: modelData.name || modelData.id
-        width: parent.width
-        height: root.actionSize + Style.space(2)
-
-        HoverHandler { id: rowHover }
-        Rectangle {
-          anchors.fill: parent
-          radius: Style.space(5)
-          color: rowHover.hovered ? Qt.alpha(Commons.Color.foreground, 0.06) : "transparent"
-        }
-
-        // Name, then a small lit glyph for each active state. Its width shrinks
-        // to leave room for the numbers and, on hover, the action buttons.
+      model: [{key: "cpu", label: "CPU"}, {key: "memory_mib", label: "Memory"}, {key: "io_bps", label: "I/O"}]
+      UiButton { required property var modelData; text: modelData.label; checked: root.sortKey === modelData.key; onClicked: root.sortKey = modelData.key }
+    }
+    UiButton { text: "Keyboard"; onClicked: root.forceActiveFocus() }
+    UiButton { text: "Open btop"; onClicked: Quickshell.execDetached(["omarchy-launch-or-focus-tui", "btop"]) }
+  }
+  VText { visible: !root.compact; width: parent.width; muted: true; text: "↑/↓ select · C Calm/restore · F Freeze/thaw · Tab moves between controls" }
+  VText { visible: root.rows.length === 0; width: parent.width; muted: true; text: root.agentsOnly ? "No tracked agents. Use vitals-run to track the next launch." : "No matching app scopes." }
+  Repeater {
+    id: appRows
+    model: root.rows
+    delegate: Rectangle {
+      id: row
+      required property var modelData
+      width: root.width
+      height: body.implicitHeight + Style.space(12)
+      color: root.selected === modelData.id ? Qt.alpha(Commons.Color.accent, 0.1) : "transparent"
+      radius: Style.space(5)
+      Column {
+        id: body
+        x: Style.space(6); y: Style.space(6); width: parent.width - Style.space(12)
+        spacing: Style.space(3)
         Row {
-          id: nameRow
-          anchors.left: parent.left
-          anchors.leftMargin: Style.space(4)
-          anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(5)
-          readonly property real available: (row.showActions ? actions.x : numbers.x) - x - Style.space(8)
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            width: Math.min(implicitWidth, Math.max(0, nameRow.available - (stateGlyphs.visible ? stateGlyphs.implicitWidth + nameRow.spacing : 0)))
-            elide: Text.ElideRight
-            text: row.label
-            color: row.st.frozen ? Qt.alpha(Commons.Color.foreground, 0.5) : Commons.Color.foreground
-            font.family: Style.font.family; font.pixelSize: Style.font.bodySmall
-          }
-          Text {
-            id: stateGlyphs
-            anchors.verticalCenter: parent.verticalCenter
-            visible: (row.st.calmed || row.st.frozen) && !row.showActions
-            text: (row.st.calmed ? root.calmGlyph : "") + (row.st.calmed && row.st.frozen ? " " : "") + (row.st.frozen ? root.freezeGlyph : "")
-            color: Commons.Color.accent
-            font.family: Style.font.family; font.pixelSize: Style.font.caption
-          }
+          width: parent.width
+          VText { width: parent.width * .62; text: (row.modelData.project ? row.modelData.project + " / " : "") + row.modelData.name + (row.modelData.inferred ? " · inferred root process" : ""); font.weight: Font.Medium }
+          VText { width: parent.width * .38; horizontalAlignment: Text.AlignRight; text: row.modelData.cpu.toFixed(1) + "% · " + root.mem(row.modelData.memory_mib) }
         }
-
-        // Actions float in the gap left of the numbers, only while hovered.
-        Row {
-          id: actions
-          anchors.right: numbers.left
-          anchors.rightMargin: Style.space(6)
-          anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(2)
-          visible: row.showActions
+        VText { width: parent.width; muted: true; text: (row.modelData.cores_used || 0).toFixed(2) + " cores used" + (row.modelData.session_id ? " · " + row.modelData.session_id.slice(0, 8) : "") + (row.modelData.frozen ? " · frozen" : "") + (row.modelData.calmed ? " · low priority" : "") + (row.modelData.started ? " · started " + new Date(row.modelData.started * 1000).toLocaleTimeString() : "") }
+        Flow {
+          visible: !root.compact
+          width: parent.width; spacing: Style.space(5)
+          UiButton { text: "Details"; available: !row.modelData.inferred; checked: root.selected === row.modelData.id; onClicked: { root.selected = row.modelData.id; if (root.service) root.service.send({op: "inspect", id: row.modelData.id}) } }
+          UiButton { text: row.modelData.calmed ? "Restore" : "Calm"; checked: !!row.modelData.calmed; available: !row.modelData.inferred && root.service && !root.service.actionPending; onClicked: root.service.act(row.modelData, row.modelData.calmed ? "uncalm" : "calm") }
+          UiButton { text: row.modelData.frozen ? "Thaw" : "Freeze"; checked: !!row.modelData.frozen; available: !row.modelData.inferred && root.service && !root.service.actionPending; onClicked: root.service.act(row.modelData, row.modelData.frozen ? "thaw" : "freeze") }
+        }
+        Column {
+          width: parent.width
+          visible: root.service && root.service.sample.inspected === row.modelData.id
           Repeater {
-            model: [
-              { glyph: root.calmGlyph, active: row.st.calmed, action: row.st.calmed ? "uncalm" : "calm",
-                tip: (row.st.calmed ? "Restore CPU priority for " : "Calm (low CPU priority) ") + row.label },
-              { glyph: root.freezeGlyph, active: row.st.frozen, action: row.st.frozen ? "thaw" : "freeze",
-                tip: (row.st.frozen ? "Thaw " : "Freeze ") + row.label }
-            ]
-            delegate: Rectangle {
-              id: btn
-              required property var modelData
-              width: root.actionSize
-              height: root.actionSize
-              radius: Style.space(5)
-              color: btn.modelData.active ? Qt.alpha(Commons.Color.accent, 0.22)
-                   : area.containsMouse ? Qt.alpha(Commons.Color.foreground, 0.16) : "transparent"
-              Text {
-                anchors.centerIn: parent
-                text: btn.modelData.glyph
-                color: btn.modelData.active ? Commons.Color.accent : Qt.alpha(Commons.Color.foreground, area.containsMouse ? 1 : 0.7)
-                font.family: Style.font.family; font.pixelSize: Style.font.bodySmall
-              }
-              MouseArea {
-                id: area
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onContainsMouseChanged: root.hint = containsMouse ? btn.modelData.tip : (root.hint === btn.modelData.tip ? "" : root.hint)
-                onClicked: root.act(row.modelData, btn.modelData.action)
-              }
-            }
-          }
-        }
-
-        // Numbers sit flush right; nothing is reserved for the actions.
-        Row {
-          id: numbers
-          anchors.right: parent.right
-          anchors.rightMargin: Style.space(4)
-          anchors.verticalCenter: parent.verticalCenter
-          Text {
-            width: root.cpuColumn
-            anchors.verticalCenter: parent.verticalCenter
-            horizontalAlignment: Text.AlignRight
-            text: row.st.frozen ? "frozen" : root.pct(row.modelData.cpu)
-            color: row.st.frozen ? Commons.Color.accent : Qt.alpha(Commons.Color.foreground, 0.8)
-            font.family: Style.font.family; font.pixelSize: Style.font.bodySmall
-            font.features: ({ "tnum": 1 })
-          }
-          Text {
-            width: root.memColumn
-            anchors.verticalCenter: parent.verticalCenter
-            horizontalAlignment: Text.AlignRight
-            text: root.mem(row.modelData.memory_mib)
-            color: Qt.alpha(Commons.Color.foreground, 0.6)
-            font.family: Style.font.family; font.pixelSize: Style.font.bodySmall
-            font.features: ({ "tnum": 1 })
+            model: parent.visible ? root.service.sample.children || [] : []
+            VText { required property var modelData; width: body.width; muted: true; text: "  " + modelData.name + " · PID " + modelData.pid + " · " + modelData.cpu.toFixed(1) + "% · " + root.mem(modelData.memory_mib) }
           }
         }
       }
     }
   }
-
-  Text {
-    visible: root.errorText !== ""
-    width: parent.width
-    wrapMode: Text.WordWrap
-    text: root.errorText
-    color: Commons.Color.foreground
-    font.family: Style.font.family; font.pixelSize: Style.font.caption
-  }
+  UiButton { visible: root.compact; text: "Show all apps"; onClicked: root.showAll() }
 }

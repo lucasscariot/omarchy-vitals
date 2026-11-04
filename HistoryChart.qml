@@ -2,92 +2,102 @@ import QtQuick
 import qs.Commons
 import qs.Commons as Commons
 
-// One compact metric row: live value on the left, past-hour sparkline on the right.
-Item {
+Column {
   id: root
   property var points: []
   property string metric: "cpu"
   property string title: "CPU"
   property string unit: "%"
+  property real now: Date.now() / 1000
+  property int range: 3600
   property var current: undefined
-  property string detail: ""
-  property real now: 0
   property color lineColor: Commons.Color.accent
-  readonly property real labelWidth: Style.space(118)
-  readonly property var values: points.map(p => p[metric]).filter(v => v !== null && v !== undefined && isFinite(v))
-  readonly property real maximum: values.length ? Math.max.apply(null, values) : 0
-  readonly property real average: values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0
-  readonly property real ceiling: metric === "temperature" ? Math.max(60, Math.ceil(maximum / 10) * 10) : 100
-  implicitHeight: Math.max(labels.implicitHeight, Style.space(44))
+  property string temperatureUnit: "C"
+  property var events: []
+  signal inspect(real start, real end)
+  readonly property var values: points.map(p => p.values[metric]).filter(v => v !== null && v !== undefined && isFinite(v))
+  readonly property real ceiling: metric === "temperature" ? Math.max(60, Math.ceil(maximum / 10) * 10) : unit === "%" ? 100 : Math.max(1, maximum)
+  readonly property real maximum: Math.max.apply(null, points.map(p => p.peaks[metric]).filter(v => v !== null && v !== undefined).concat([0]))
+  readonly property real average: {
+    var total = 0, count = 0
+    for (var p of points) {
+      var v = p.values[metric], n = p.weights[metric] || p.count
+      if (v !== null && v !== undefined) { total += v * n; count += n }
+    }
+    return count ? total / count : 0
+  }
+  spacing: Style.space(3)
+  function value(v) { return metric === "temperature" && temperatureUnit === "F" ? v * 1.8 + 32 : v }
+  function formatted(v) {
+    if (v === null || v === undefined || !isFinite(v)) return "—"
+    if (unit === "B/s") return v >= 1048576 ? (v / 1048576).toFixed(1) + " MiB/s" : (v / 1024).toFixed(1) + " KiB/s"
+    return Math.round(value(v)) + (metric === "temperature" ? "°" + temperatureUnit : unit)
+  }
+  function pointAt(x, width) {
+    var t = now - range + range * x / width
+    return points.find(p => t >= p.time && t < p.time + p.resolution) || null
+  }
   onPointsChanged: plot.requestPaint()
   onNowChanged: plot.requestPaint()
+  onRangeChanged: plot.requestPaint()
   onLineColorChanged: plot.requestPaint()
-
-  Column {
-    id: labels
-    width: root.labelWidth
-    anchors.verticalCenter: parent.verticalCenter
-    spacing: Style.space(1)
-    Text {
-      width: parent.width
-      elide: Text.ElideRight
-      text: root.title + (root.detail ? "  ·  " + root.detail : "")
-      color: Qt.alpha(Commons.Color.foreground, 0.65)
-      font.family: Style.font.family; font.pixelSize: Style.font.caption
-    }
-    Text {
-      text: root.current === undefined ? "…" : root.current === null || !isFinite(root.current) ? "—" : Math.round(root.current) + root.unit
-      color: Commons.Color.foreground
-      font.family: Style.font.family; font.pixelSize: Style.font.heading; font.weight: Font.Medium
-      font.features: ({ "tnum": 1 })
-    }
-    Text {
-      text: root.values.length ? "avg " + Math.round(root.average) + "  ·  peak " + Math.round(root.maximum) : "collecting…"
-      color: Qt.alpha(Commons.Color.foreground, 0.5)
-      font.family: Style.font.family; font.pixelSize: Style.font.caption
-      font.features: ({ "tnum": 1 })
-    }
+  onEventsChanged: plot.requestPaint()
+  Row {
+    width: parent.width
+    VText { width: parent.width / 2; text: root.title + "  " + root.formatted(root.current); font.weight: Font.Medium }
+    VText { width: parent.width / 2; horizontalAlignment: Text.AlignRight; muted: true; text: root.values.length ? "avg " + root.formatted(root.average) + " · peak " + root.formatted(root.maximum) : "Collecting history…" }
   }
-
   Canvas {
     id: plot
-    x: root.labelWidth + Style.space(8)
-    width: root.width - x
-    height: root.height
+    width: parent.width
+    height: Style.space(65)
     onWidthChanged: requestPaint()
-    onHeightChanged: requestPaint()
     onPaint: {
-      var ctx = getContext("2d")
-      ctx.reset()
-      ctx.strokeStyle = Qt.alpha(Commons.Color.foreground, 0.1)
-      ctx.lineWidth = 1
-      ctx.beginPath(); ctx.moveTo(0, height - 1.5); ctx.lineTo(width, height - 1.5); ctx.stroke()
-      ctx.strokeStyle = root.lineColor
-      ctx.fillStyle = root.lineColor
-      ctx.lineWidth = 1.5
-      ctx.beginPath()
-      var previousTime = 0
-      var connected = false
+      var ctx = getContext("2d"); ctx.reset()
+      ctx.strokeStyle = Qt.alpha(Commons.Color.foreground, 0.12); ctx.lineWidth = 1
+      for (var i = 0; i < 3; i++) { var y = i * (height - 1) / 2; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke() }
+      ctx.strokeStyle = root.lineColor; ctx.lineWidth = 1.5; ctx.beginPath()
+      var previous = null
       for (var p of root.points) {
-        var v = p[root.metric]
-        if (v === null || v === undefined || !isFinite(v)) { connected = false; continue }
-        var x = width * (p.time - (root.now - 3600)) / 3600
-        var py = height - 2 - Math.max(0, Math.min(root.ceiling, v)) / root.ceiling * (height - 4)
-        if (x < 0 || x > width) { connected = false; continue }
-        if (!connected || p.time - previousTime > 30) ctx.moveTo(x, py)
+        var v = p.values[root.metric]
+        if (v === null || v === undefined) { previous = null; continue }
+        var x = width * (p.first - (root.now - root.range)) / root.range
+        var py = height - 1 - Math.max(0, Math.min(root.ceiling, v)) / root.ceiling * (height - 2)
+        if (x < 0 || x > width) { previous = null; continue }
+        if (!previous || !p.contiguous || !previous.contiguous || p.first - previous.last > 30) ctx.moveTo(x, py)
         else ctx.lineTo(x, py)
-        connected = true; previousTime = p.time
+        previous = p
       }
       ctx.stroke()
-      if (root.points.length) {
-        var last = root.points[root.points.length - 1]
-        var value = last[root.metric]
-        if (value !== null && value !== undefined) {
-          ctx.beginPath()
-          ctx.arc(width * (last.time - (root.now - 3600)) / 3600, height - 2 - Math.max(0, Math.min(root.ceiling, value)) / root.ceiling * (height - 4), 2.5, 0, Math.PI * 2)
-          ctx.fill()
-        }
+      ctx.fillStyle = root.lineColor
+      for (var point of root.points) {
+        var value = point.values[root.metric]
+        if (value === null || value === undefined) continue
+        var px = width * (point.first - (root.now - root.range)) / root.range
+        if (px < 0 || px > width) continue
+        ctx.beginPath(); ctx.arc(px, height - 1 - Math.max(0, Math.min(root.ceiling, value)) / root.ceiling * (height - 2), 1.5, 0, Math.PI * 2); ctx.fill()
+      }
+      ctx.strokeStyle = Qt.alpha(root.lineColor, 0.25)
+      for (var event of root.events) {
+        var ex = width * (event.time - (root.now - root.range)) / root.range
+        if (ex < 0 || ex > width) continue
+        ctx.beginPath(); ctx.moveTo(ex, 0); ctx.lineTo(ex, height); ctx.stroke()
       }
     }
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onPositionChanged: function(mouse) {
+        var p = root.pointAt(mouse.x, width)
+        caption.text = p ? new Date(p.first * 1000).toLocaleTimeString() + " · " + root.formatted(p.values[root.metric]) + " · peak " + root.formatted(p.peaks[root.metric]) : "No sample"
+      }
+      onClicked: function(mouse) { var p = root.pointAt(mouse.x, width); if (p) root.inspect(p.time, p.time + p.resolution) }
+    }
+  }
+  Row {
+    width: parent.width
+    VText { width: parent.width / 2; muted: true; text: root.formatted(0) + "–" + root.formatted(root.ceiling) + " · " + (root.range === 3600 ? "past hour" : root.range === 86400 ? "past day" : root.range === 604800 ? "past week" : "past month") }
+    VText { id: caption; width: parent.width / 2; horizontalAlignment: Text.AlignRight; muted: true; font.pixelSize: Style.font.caption }
   }
 }

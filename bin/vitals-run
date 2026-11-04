@@ -8,6 +8,12 @@ import re
 import secrets
 import shutil
 import sys
+from pathlib import Path
+import uuid
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from vitals.jobs import project_info, supervise
+import subprocess
 
 USAGE = 'usage: vitals-run [--name LABEL] [--] COMMAND [ARGS...]'
 MAX_LABEL = 24
@@ -23,7 +29,8 @@ def build_argv(label, command, suffix=None, systemd_run='systemd-run'):
     suffix = suffix or secrets.token_hex(3)
     return [systemd_run, '--user', '--scope', '--quiet', '--collect',
             '--unit=agent-%s-%s' % (label, suffix),
-            '--description=Vitals: %s' % label, '--'] + list(command)
+            '--description=Vitals: %s' % label, '--property=CPUAccounting=yes',
+            '--property=MemoryAccounting=yes', '--property=IOAccounting=yes', '--'] + list(command)
 
 
 def parse(args):
@@ -43,18 +50,44 @@ def parse(args):
     return name, args
 
 
+def manager_available():
+    try:
+        return subprocess.run(['systemctl', '--user', 'show-environment'], stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, timeout=1).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def main(args=None):
-    name, command = parse(sys.argv[1:] if args is None else args)
+    args = sys.argv[1:] if args is None else list(args)
+    if args in (['--help'], ['-h']):
+        print(USAGE + '\nUse --shell-init to print optional agent aliases.')
+        return 0
+    if args == ['--shell-init']:
+        import shlex
+        launcher = shlex.quote(str(Path(__file__).resolve()))
+        for command in ('claude', 'codex', 'opencode', 'gemini'):
+            print(f'alias {command}={shlex.quote(launcher + " -- " + command)}')
+        return 0
+    if args and args[0] == '--worker':
+        ident, label, project_id, project = args[1:5]
+        return supervise(args[6:], label, ident, {'project_id': project_id, 'project': project})
+    name, command = parse(args)
     if not command:
         print(USAGE, file=sys.stderr)
         return 2
     label = name if name is not None else os.path.basename(command[0])
+    label = sanitize_label(label)
     systemd_run = shutil.which('systemd-run')
-    if systemd_run and os.environ.get('XDG_RUNTIME_DIR'):
-        argv = build_argv(label, command, systemd_run=systemd_run)
+    if systemd_run and os.environ.get('XDG_RUNTIME_DIR') and manager_available():
+        ident = uuid.uuid4().hex
+        project = project_info()
+        worker = [sys.executable, '-B', str(Path(__file__).resolve()), '--worker',
+                  ident, label, project['project_id'], project['project'], '--'] + command
+        argv = build_argv(label, worker, suffix=ident, systemd_run=systemd_run)
     else:
         print('vitals-run: systemd user manager not available; running without a scope', file=sys.stderr)
-        argv = command
+        return supervise(command, label, uuid.uuid4().hex)
     try:
         os.execvp(argv[0], argv)
     except OSError as error:
