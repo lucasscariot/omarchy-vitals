@@ -34,7 +34,7 @@ Item {
     if (open) refreshHistory()
   }
   function refreshHistory() { send({op: "history", range: historyRange}) }
-  function setRange(seconds) { historyRange = seconds; detail = ({}); refreshHistory() }
+  function setRange(seconds) { if (historyRange !== seconds) points = []; historyRange = seconds; detail = ({}); refreshHistory() }
   function act(app, action) {
     if (actionPending) return
     actionPending = true

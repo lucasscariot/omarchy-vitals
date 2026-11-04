@@ -7,7 +7,7 @@ This is an API check against that installation, not a release compatibility matr
 
 ## Automated checks
 
-- Python unit/integration suite: collector normalization, app grouping, unique
+- 52 Python unit/integration tests: collector normalization, app grouping, unique
   agent sessions, counter resets, stale scope rejection, history migration,
   rollups, extrema, sampling gaps, storage budgets, action observations,
   missing completion receipts, settings and legacy service migration.
@@ -20,11 +20,23 @@ This is an API check against that installation, not a release compatibility matr
 - `python3 tests/qml_smoke.py` renders Overview, Apps, Agents, Hardware, History,
   Timeline, Jobs and Settings without QML runtime errors. It uses synthetic
   historical/job fixtures, live read-only system readings and private XDG roots.
+  Reopening from an advanced view also verifies the compact overview and one-hour
+  history range are restored.
 
 The offscreen renderer substitutes only `KeyboardPanel`'s compositor surface.
-Real layer-shell placement, outside-click dismissal, multi-monitor focus and
-desktop key routing still require an Omarchy desktop acceptance check. No real
-desktop configuration or running applications were changed by these checks.
+These automated checks leave desktop configuration and running apps alone.
+
+## Local desktop check
+
+The native plugin was installed on the machine and the shell restarted. Live
+captures confirmed separate, spaced bar glyphs and values, the compact popup
+placement, CPU/memory/temperature charts and the short app list. The shell log
+showed no Vitals QML runtime errors. Exactly one native collector was running;
+the legacy user unit was removed and its history imported into SQLite while
+retaining the original JSON history.
+
+Outside-click dismissal, desktop key routing and multi-monitor focus still
+require a desktop acceptance check.
 
 ## Short performance measurement
 

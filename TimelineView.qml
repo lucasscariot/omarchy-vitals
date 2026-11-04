@@ -14,8 +14,7 @@ Column {
       UiButton { required property var modelData; text: modelData.label; checked: root.service && root.service.historyRange === modelData.seconds; onClicked: root.service.setRange(modelData.seconds) }
     }
   }
-  VText { width: parent.width; muted: true; text: "Jobs, sustained pressure and user actions in the selected history range. Conditions before and after an action are observations, not proof of its effect." }
-  VText { visible: !root.service || root.service.events.length === 0; width: parent.width; text: "No recorded events in this range." }
+  VText { visible: !root.service || root.service.events.length === 0; width: parent.width; text: "No events" }
   Repeater {
     model: root.service ? root.service.events : []
     Column {
@@ -24,8 +23,8 @@ Column {
       VText { width: parent.width; font.weight: Font.Medium; text: new Date(modelData.time * 1000).toLocaleString() + " · " + (modelData.message || (modelData.kind === "job_start" ? "Started " : "Exited ") + modelData.project + " / " + modelData.label) }
       VText { width: parent.width; visible: modelData.kind === "incident"; text: (modelData.status || "") + " · peak pressure " + root.pct(modelData.peak) }
       VText { width: parent.width; visible: !!modelData.error; text: modelData.error || "" }
-      VText { width: parent.width; visible: !!modelData.before; text: "Before: CPU " + root.pct(modelData.before ? modelData.before.cpu : null) + " · memory pressure " + root.pct(modelData.before ? modelData.before.memory_pressure : null) + "\nAfter: CPU " + root.pct(modelData.after ? modelData.after.cpu : null) + " · memory pressure " + root.pct(modelData.after ? modelData.after.memory_pressure : null) + (modelData.after ? " (following samples)" : modelData.after_captured ? " (unavailable in retained samples)" : " (awaiting available samples)") }
-      UiButton { text: "Inspect surrounding minute"; onClicked: root.inspect(modelData.time - 30, modelData.time + 30) }
+      VText { width: parent.width; visible: !!modelData.before; text: "Before: CPU " + root.pct(modelData.before ? modelData.before.cpu : null) + " · memory pressure " + root.pct(modelData.before ? modelData.before.memory_pressure : null) + "\nAfter: CPU " + root.pct(modelData.after ? modelData.after.cpu : null) + " · memory pressure " + root.pct(modelData.after ? modelData.after.memory_pressure : null) + (modelData.after ? "" : modelData.after_captured ? " · unavailable" : " · pending") }
+      UiButton { text: "Inspect"; onClicked: root.inspect(modelData.time - 30, modelData.time + 30) }
     }
   }
 }

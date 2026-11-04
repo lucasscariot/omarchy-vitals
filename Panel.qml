@@ -18,7 +18,11 @@ Panel {
   }
   readonly property bool graphs: setting("barStyle", prefs.style || "text") === "graph"
   property string clientId: "panel-" + Math.random().toString(36).slice(2)
+  property bool advanced: false
   property string page: "Overview"
+  onAdvancedChanged: {
+    if (!advanced) { page = "Overview"; if (service && opened && service.historyRange !== 3600) service.setRange(3600) }
+  }
   onPageChanged: Qt.callLater(function() { scroll.contentY = 0 })
   property bool showEvents: true
   property var historyMetrics: ["cpu", "ram", "temperature"]
@@ -33,23 +37,31 @@ Panel {
     {key: "gpu", title: "GPU", unit: "%"}]
   implicitWidth: button.implicitWidth
   implicitHeight: bar ? bar.barSize : Style.space(26)
-  onOpenedChanged: if (service) service.setViewing(clientId, opened)
+  onOpenedChanged: {
+    if (opened) {
+      advanced = false; page = "Overview"
+      if (service && service.historyRange !== 3600) service.setRange(3600)
+    }
+    if (service) service.setViewing(clientId, opened)
+  }
   onServiceChanged: if (service && opened) service.setViewing(clientId, true)
   Component.onDestruction: if (service) service.setViewing(clientId, false)
+  function showDetails(section) { advanced = true; page = section }
+  function icon(metric) { return ({cpu:"", ram:"", temperature:"", network:"", disk:"", gpu:"󰢮", fans:"󰈐", battery:"", power:""})[metric] || "" }
   function percent(v) { return v === null || v === undefined ? "—" : Math.round(v) + "%" }
   function temperatureText(v) { return v === null || v === undefined ? "—" : Math.round(prefs.temperatureUnit === "F" ? v * 1.8 + 32 : v) + "°" + (prefs.temperatureUnit || "C") }
   function rate(v) { return v === null || v === undefined ? "—" : v >= 1048576 ? (v / 1048576).toFixed(1) + "M" : Math.round(v / 1024) + "K" }
   function readout(metric) {
-    if (metric === "cpu") return " " + percent(sample.cpu)
-    if (metric === "ram") return " " + percent(sample.ram)
-    if (metric === "temperature") return " " + temperatureText(sample.temperature)
+    if (metric === "cpu") return percent(sample.cpu)
+    if (metric === "ram") return percent(sample.ram)
+    if (metric === "temperature") return temperatureText(sample.temperature)
     if (metric === "network") return "↓" + rate(sample.rx)
-    if (metric === "disk") return " " + rate(sample.disk_write)
-    if (metric === "gpu") return "GPU " + percent(sample.gpu)
+    if (metric === "disk") return rate(sample.disk_write)
+    if (metric === "gpu") return percent(sample.gpu)
     var hw = sample.hardware || ({})
-    if (metric === "fans") { var fan = (hw.fans || []).find(f => f.rpm !== null); return "Fan " + (fan ? Math.round(fan.rpm) : "—") }
-    if (metric === "battery") return "Bat " + percent((hw.batteries || [])[0] ? hw.batteries[0].percent : null)
-    if (metric === "power") { var battery = (hw.batteries || []).find(b => b.watts !== null); var source = battery || (hw.power || []).find(p => p.watts !== null); return "W " + (source ? source.watts.toFixed(1) : "—") }
+    if (metric === "fans") { var fan = (hw.fans || []).find(f => f.rpm !== null); return (fan ? Math.round(fan.rpm) : "—") }
+    if (metric === "battery") return percent((hw.batteries || [])[0] ? hw.batteries[0].percent : null)
+    if (metric === "power") { var battery = (hw.batteries || []).find(b => b.watts !== null); var source = battery || (hw.power || []).find(p => p.watts !== null); return source ? source.watts.toFixed(1) + "W" : "—" }
     return "—"
   }
   function inspect(start, end) { if (service) service.send({op: "detail", start: start, end: end}) }
@@ -62,48 +74,62 @@ Panel {
     bar: root.bar
     labelVisible: false
     hasVisualContent: true
+    horizontalMargin: 5
     fixedWidth: Style.space(Math.max(52, root.modules.length * (root.graphs ? 72 : 52)))
     tooltipText: root.modules.map(m => m + ": " + root.readout(m)).join("\n") + (root.sample.incidents && root.sample.incidents.length ? "\nResource pressure active" : "")
     onPressed: function(b) { root.toggle() }
     Row {
       id: readouts
       anchors.centerIn: parent
-      spacing: Style.space(8)
+      spacing: 0
       scale: Math.min(1, button.width / Math.max(1, implicitWidth))
       Repeater {
         model: root.modules
-        Row {
+        delegate: Item {
+          id: metricCell
           required property string modelData
-          property string metric: modelData
-          anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(3)
-          Text {
-            text: root.readout(parent.metric)
-            color: button.foreground
-            font.family: button.fontFamily
-            font.pixelSize: button.fontSize
-            font.features: ({"tnum": 1})
-          }
-          Canvas {
-            id: mini
-            visible: root.graphs
-            width: visible ? Style.space(24) : 0
-            height: Style.space(13)
+          readonly property string metric: modelData
+          width: metricContent.implicitWidth + button.scaledHorizontalMargin * 2
+          height: button.height
+          Row {
+            id: metricContent
+            x: button.scaledHorizontalMargin
             anchors.verticalCenter: parent.verticalCenter
-            property var samples: root.service ? root.service.barPoints : []
-            onSamplesChanged: requestPaint()
-            onPaint: {
-              var ctx = getContext("2d"); ctx.reset(); ctx.strokeStyle = button.foreground; ctx.lineWidth = 1; ctx.beginPath()
-              var values = samples.map(p => p[parent.metric]).filter(v => v !== null && v !== undefined)
-              var max = ["cpu", "ram", "gpu"].includes(parent.metric) ? 100 : Math.max.apply(null, values.concat([1]))
-              for (var i = 0; i < values.length; i++) { var x = width * i / Math.max(1, values.length - 1), y = height - 1 - values[i] / max * (height - 2); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y) }
-              ctx.stroke()
+            spacing: Style.spacing.labelGap
+            OpticalGlyph {
+              width: tightWidth; height: Style.bar.iconCanvas
+              text: root.icon(metricCell.metric)
+              fontFamily: button.fontFamily; fontSize: Style.bar.iconFont
+              color: button.foreground
+            }
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              textFormat: Text.PlainText
+              text: root.readout(metricCell.metric)
+              color: button.foreground
+              font.family: button.fontFamily; font.pixelSize: button.fontSize
+              font.features: ({"tnum": 1}); renderType: Text.NativeRendering
+            }
+            Canvas {
+              visible: root.graphs
+              width: visible ? Style.space(24) : 0; height: Style.space(13)
+              anchors.verticalCenter: parent.verticalCenter
+              property var samples: root.service ? root.service.barPoints : []
+              onSamplesChanged: requestPaint()
+              onPaint: {
+                var ctx = getContext("2d"); ctx.reset(); ctx.strokeStyle = button.foreground; ctx.lineWidth = 1; ctx.beginPath()
+                var values = samples.map(p => p[metricCell.metric]).filter(v => v !== null && v !== undefined)
+                var max = ["cpu", "ram", "gpu"].includes(metricCell.metric) ? 100 : Math.max.apply(null, values.concat([1]))
+                for (var i = 0; i < values.length; i++) { var x = width * i / Math.max(1, values.length - 1), y = height - 1 - values[i] / max * (height - 2); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y) }
+                ctx.stroke()
+              }
             }
           }
         }
       }
     }
   }
+
   KeyboardPanel {
     id: panel
     anchorItem: button
@@ -111,7 +137,7 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keys
-    contentWidth: panel.fittedContentWidth(Style.space(580))
+    contentWidth: panel.fittedContentWidth(Style.space(root.advanced ? 580 : 420))
     contentHeight: panel.fittedContentHeight(Math.min(panelContent.implicitHeight, Style.space(690)))
     FocusScope {
       id: keys
@@ -128,11 +154,17 @@ Panel {
           id: panelContent
           width: parent.width
           spacing: Style.space(10)
-          VText { width: parent.width; text: "Vitals"; font.pixelSize: Style.font.heading; font.weight: Font.Medium }
+          Row {
+            width: parent.width; spacing: Style.space(6)
+            VText { anchors.verticalCenter: parent.verticalCenter; width: parent.width - navButton.implicitWidth - (pressureButton.visible ? pressureButton.implicitWidth + Style.space(6) : 0) - Style.space(12); text: root.advanced ? "Vitals · " + root.page : "Vitals"; font.pixelSize: Style.font.heading; font.weight: Font.Medium }
+            UiButton { id: pressureButton; visible: !!root.sample.incidents && root.sample.incidents.length > 0; text: "!"; hint: "Resource pressure"; tooltipHost: root.bar; onClicked: root.showDetails("History") }
+            UiButton { id: navButton; text: root.advanced ? "‹" : "Details"; onClicked: root.advanced ? root.advanced = false : root.showDetails("Apps") }
+          }
           Flow {
+            visible: root.advanced
             width: parent.width; spacing: Style.space(5)
             Repeater {
-              model: ["Overview", "Apps", "Agents", "Hardware", "History", "Timeline", "Jobs", "Settings"]
+              model: ["Apps", "Agents", "Hardware", "History", "Timeline", "Jobs", "Settings"]
               UiButton { required property string modelData; text: modelData; checked: root.page === modelData; onClicked: { root.page = modelData; scroll.contentY = 0 } }
             }
           }
@@ -152,17 +184,28 @@ Panel {
     id: overview
     Column {
       width: parent.width; spacing: Style.space(10)
-      VText { width: parent.width; text: "CPU " + root.percent(root.sample.cpu) + " · Memory " + root.percent(root.sample.ram) + " · CPU " + root.temperatureText(root.sample.temperature); font.weight: Font.Medium }
-      VText { width: parent.width; muted: true; text: root.sample.used_gib === undefined ? "Collecting…" : root.sample.used_gib.toFixed(1) + " / " + root.sample.total_gib.toFixed(1) + " GiB · " + (root.sample.available_gib || 0).toFixed(1) + " GiB available · " + (root.sample.swap_gib || 0).toFixed(1) + " GiB swap" }
-      VText { width: parent.width; text: "Tasks waiting · CPU " + root.percent(root.sample.cpu_pressure) + " · memory " + root.percent(root.sample.memory_pressure) + " · I/O " + root.percent(root.sample.io_pressure) }
-      VText { width: parent.width; muted: true; text: "Swap in " + root.rate(root.sample.pswpin) + "/s · swap out " + root.rate(root.sample.pswpout) + "/s. CPU percentages use whole-machine capacity." }
-      Repeater {
-        model: root.sample.incidents || []
-        VText { required property var modelData; width: parent.width; text: modelData.message; color: Commons.Color.accent }
+      Column {
+        width: parent.width; spacing: Style.space(6)
+        GlanceChart { width: parent.width; title: "CPU"; metric: "cpu"; current: root.sample.cpu; points: root.service.points; now: root.sample.time || Date.now() / 1000 }
+        GlanceChart {
+          width: parent.width; title: "Memory"; metric: "ram"; current: root.sample.ram
+          detail: root.sample.used_gib === undefined ? "" : root.sample.used_gib.toFixed(1) + "/" + root.sample.total_gib.toFixed(0) + " GiB"
+          points: root.service.points; now: root.sample.time || Date.now() / 1000
+          lineColor: Commons.Color.background.hslLightness > 0.5 ? "#237A3B" : "#77E68C"
+        }
+        GlanceChart {
+          width: parent.width; title: "Temperature"; metric: "temperature"; current: root.sample.temperature
+          temperatureUnit: root.prefs.temperatureUnit || "C"; points: root.service.points; now: root.sample.time || Date.now() / 1000
+          lineColor: Commons.Color.background.hslLightness > 0.5 ? "#A64B00" : "#FF9F0A"
+        }
       }
-      VText { width: parent.width; text: "Apps"; font.weight: Font.Medium }
-      AppList { width: parent.width; service: root.service; compact: true; onShowAll: root.page = "Apps" }
-      UiButton { text: "Agents and projects"; onClicked: root.page = "Agents" }
+      Rectangle { width: parent.width; height: 1; color: Qt.alpha(Commons.Color.foreground, 0.1) }
+      UiButton {
+        visible: !!root.sample.agents && root.sample.agents.count > 0
+        text: root.sample.agents ? "Agents " + root.sample.agents.count + " · " + root.percent(root.sample.agents.cpu) + " · " + (root.sample.agents.memory_mib / 1024).toFixed(1) + " GiB ›" : ""
+        onClicked: root.showDetails("Agents")
+      }
+      AppList { width: parent.width; service: root.service; bar: root.bar; compact: true; onShowAll: root.showDetails("Apps") }
     }
   }
   function reveal(item, top, bottom) {
@@ -172,15 +215,15 @@ Panel {
   }
   Component {
     id: apps
-    AppList { id: browser; width: parent.width; service: root.service; onRevealRequested: function(top, bottom) { root.reveal(browser, top, bottom) } }
+    AppList { id: browser; width: parent.width; service: root.service; bar: root.bar; onRevealRequested: function(top, bottom) { root.reveal(browser, top, bottom) } }
   }
   Component {
     id: agents
-    AppList { id: agentBrowser; width: parent.width; service: root.service; agentsOnly: true; onRevealRequested: function(top, bottom) { root.reveal(agentBrowser, top, bottom) } }
+    AppList { id: agentBrowser; width: parent.width; service: root.service; bar: root.bar; agentsOnly: true; onRevealRequested: function(top, bottom) { root.reveal(agentBrowser, top, bottom) } }
   }
   Component { id: hardware; HardwareView { width: parent.width; sample: root.sample; temperatureUnit: root.prefs.temperatureUnit || "C" } }
   Component { id: jobs; JobsView { width: parent.width; service: root.service } }
-  Component { id: preferences; SettingsView { width: parent.width; service: root.service; displaySettings: root.settings; onDisplayChanged: function(settings) { root.saveDisplay(settings) } } }
+  Component { id: preferences; SettingsView { width: parent.width; service: root.service; bar: root.bar; displaySettings: root.settings; onDisplayChanged: function(settings) { root.saveDisplay(settings) } } }
   Component { id: timeline; TimelineView { width: parent.width; service: root.service; onInspect: function(start, end) { root.inspect(start, end); root.page = "History" } } }
   Component {
     id: history
@@ -225,7 +268,6 @@ Panel {
           onInspect: function(start, end) { root.inspect(start, end) }
         }
       }
-      VText { width: parent.width; muted: true; text: "Click a chart interval to inspect sampled CPU, memory and block I/O contributors. Network and GPU charts show system totals. Gaps are left empty; peaks refer to observed samples. Vertical markers identify recorded events." }
       VText { visible: !!root.service.detail.count; width: parent.width; text: "Selected interval · " + new Date((root.service.detail.first || 0) * 1000).toLocaleString() + " · " + (root.service.detail.count || 0) + " samples" }
       Repeater {
         model: root.service.detail.contributors || []

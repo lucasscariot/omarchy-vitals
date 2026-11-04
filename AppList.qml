@@ -8,6 +8,7 @@ Column {
   property var service: null
   property bool agentsOnly: false
   property bool compact: false
+  property var bar: null
   property string query: ""
   property string sortKey: "cpu"
   property string selected: ""
@@ -18,7 +19,7 @@ Column {
     var list = (sample.apps || []).concat(agentsOnly ? sample.inferred || [] : []).filter(a => (a.kind === "agent") === agentsOnly)
     list = list.filter(a => ((a.name || "") + " " + (a.project || "")).toLowerCase().includes(query.toLowerCase()))
     list.sort((a, b) => (b[sortKey] || 0) - (a[sortKey] || 0) || a.id.localeCompare(b.id))
-    return compact ? list.slice(0, 5).concat(list.slice(5).filter(a => a.frozen || a.calmed)) : list
+    return compact ? list.slice(0, 3).concat(list.slice(3).filter(a => a.frozen || a.calmed)) : list
   }
   spacing: Style.space(5)
   activeFocusOnTab: !compact
@@ -67,8 +68,7 @@ Column {
     UiButton { text: "Keyboard"; onClicked: root.forceActiveFocus() }
     UiButton { text: "Open btop"; onClicked: Quickshell.execDetached(["omarchy-launch-or-focus-tui", "btop"]) }
   }
-  VText { visible: !root.compact; width: parent.width; muted: true; text: "↑/↓ select · C Calm/restore · F Freeze/thaw · Tab moves between controls" }
-  VText { visible: root.rows.length === 0; width: parent.width; muted: true; text: root.agentsOnly ? "No tracked agents. Use vitals-run to track the next launch." : "No matching app scopes." }
+  VText { visible: !root.compact && root.rows.length === 0; width: parent.width; muted: true; text: root.agentsOnly ? "No agents" : "No apps" }
   Repeater {
     id: appRows
     model: root.rows
@@ -85,16 +85,16 @@ Column {
         spacing: Style.space(3)
         Row {
           width: parent.width
-          VText { width: parent.width * .62; text: (row.modelData.project ? row.modelData.project + " / " : "") + row.modelData.name + (row.modelData.inferred ? " · inferred root process" : ""); font.weight: Font.Medium }
+          VText { width: parent.width * .62; text: (row.modelData.project ? row.modelData.project + " / " : "") + row.modelData.name + (row.modelData.inferred ? " · inferred" : ""); font.weight: Font.Medium }
           VText { width: parent.width * .38; horizontalAlignment: Text.AlignRight; text: row.modelData.cpu.toFixed(1) + "% · " + root.mem(row.modelData.memory_mib) }
         }
-        VText { width: parent.width; muted: true; text: (row.modelData.cores_used || 0).toFixed(2) + " cores used" + (row.modelData.session_id ? " · " + row.modelData.session_id.slice(0, 8) : "") + (row.modelData.frozen ? " · frozen" : "") + (row.modelData.calmed ? " · low priority" : "") + (row.modelData.started ? " · started " + new Date(row.modelData.started * 1000).toLocaleTimeString() : "") }
+        VText { visible: !root.compact; width: parent.width; muted: true; text: (row.modelData.cores_used || 0).toFixed(2) + " cores" + (row.modelData.session_id ? " · " + row.modelData.session_id.slice(0, 8) : "") + (row.modelData.frozen ? " · frozen" : "") + (row.modelData.calmed ? " · low priority" : "") + (row.modelData.started ? " · " + new Date(row.modelData.started * 1000).toLocaleTimeString() : "") }
         Flow {
           visible: !root.compact
           width: parent.width; spacing: Style.space(5)
           UiButton { text: "Details"; available: !row.modelData.inferred; checked: root.selected === row.modelData.id; onClicked: { root.selected = row.modelData.id; if (root.service) root.service.send({op: "inspect", id: row.modelData.id}) } }
-          UiButton { text: row.modelData.calmed ? "Restore" : "Calm"; checked: !!row.modelData.calmed; available: !row.modelData.inferred && root.service && !root.service.actionPending; onClicked: root.service.act(row.modelData, row.modelData.calmed ? "uncalm" : "calm") }
-          UiButton { text: row.modelData.frozen ? "Thaw" : "Freeze"; checked: !!row.modelData.frozen; available: !row.modelData.inferred && root.service && !root.service.actionPending; onClicked: root.service.act(row.modelData, row.modelData.frozen ? "thaw" : "freeze") }
+          UiButton { text: row.modelData.calmed ? "Restore" : "Calm"; hint: "Lower CPU priority; Restore sets it to 100"; tooltipHost: root.bar; checked: !!row.modelData.calmed; available: !row.modelData.inferred && root.service && !root.service.actionPending; onClicked: root.service.act(row.modelData, row.modelData.calmed ? "uncalm" : "calm") }
+          UiButton { text: row.modelData.frozen ? "Thaw" : "Freeze"; hint: "Pause the entire app, including audio and calls"; tooltipHost: root.bar; checked: !!row.modelData.frozen; available: !row.modelData.inferred && root.service && !root.service.actionPending; onClicked: root.service.act(row.modelData, row.modelData.frozen ? "thaw" : "freeze") }
         }
         Column {
           width: parent.width
@@ -107,5 +107,5 @@ Column {
       }
     }
   }
-  UiButton { visible: root.compact; text: "Show all apps"; onClicked: root.showAll() }
+  UiButton { visible: root.compact && root.rows.length > 0; text: "Apps ›"; onClicked: root.showAll() }
 }

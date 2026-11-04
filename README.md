@@ -37,12 +37,14 @@ files without running desktop commands. It no longer creates a systemd service.
 
 ## Readings and views
 
-Click the bar to open the native popup. Escape or a click outside closes it.
+Click the bar for compact CPU, memory and temperature readings with one-hour
+charts and leading apps. **Details** opens the advanced views. Every reopen
+returns to the compact view. Escape or a click outside closes it.
 The popup follows Omarchy's theme, fonts, borders and transparency.
 
 | View | Contents |
 | --- | --- |
-| Overview | CPU, RAM, temperature, memory headroom, swap activity, pressure and leading apps. |
+| Overview | Live CPU, RAM and temperature beside one-hour charts, sampled averages/peaks and leading apps. |
 | Apps | All observed user app scopes; search, CPU/memory/I/O sorting, keyboard controls and child-process details. |
 | Agents | Separate tracked sessions with project labels and session IDs, including their builds and tests. |
 | Hardware | Network rates, disk I/O and space, detected GPUs, temperatures, fans, battery and available power domains. |
@@ -95,7 +97,8 @@ Optional aliases can be reviewed with:
 vitals-run --shell-init
 ```
 
-Add the printed aliases to your shell configuration if wanted. No shell
+The Settings view also has **Copy agent aliases**. Add the copied or printed
+aliases to your shell configuration if wanted. No shell
 configuration is edited automatically. The launcher can also be called directly
 from `~/.config/omarchy/plugins/lucas.resource-usage/bin/vitals-run`.
 

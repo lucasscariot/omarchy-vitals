@@ -36,8 +36,15 @@ ShellRoot {
         panel.open(); backend.refreshHistory()
       }
       pageIndex++
-      if (pageIndex >= pages.length) { console.log("SMOKE_PAGES_OK"); Qt.quit(); return }
-      panel.page = pages[pageIndex]
+      if (pageIndex >= pages.length) {
+        backend.setRange(604800)
+        panel.close(); panel.open()
+        if (panel.advanced || panel.page !== "Overview" || backend.historyRange !== 3600) console.error("SMOKE_GLANCE_RESET_FAILED")
+        else console.log("SMOKE_PAGES_OK")
+        Qt.quit(); return
+      }
+      if (pages[pageIndex] === "Overview") { panel.advanced = false; panel.page = "Overview" }
+      else panel.showDetails(pages[pageIndex])
       if (panel.page === "Agents") {
         backend.sample = Object.assign({}, backend.sample, {apps: backend.sample.apps.concat([
           {id: "demo-session", session_id: "demo-session", project: "demo", name: "codex", kind: "agent", cpu: 20,
