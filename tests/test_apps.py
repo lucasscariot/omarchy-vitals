@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('collector', ROOT / 'collector.py')
@@ -51,6 +52,9 @@ class NormalizeTests(unittest.TestCase):
 
 class SnapshotTests(unittest.TestCase):
     def setUp(self):
+        cpu_count = mock.patch.object(collector.os, 'cpu_count', return_value=1)
+        cpu_count.start()
+        self.addCleanup(cpu_count.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name) / 'cg'
@@ -106,11 +110,11 @@ class SnapshotTests(unittest.TestCase):
         self.assertTrue(apps[0]['frozen'] and apps[0]['calmed'])
         self.assertFalse(apps[1]['frozen'] or apps[1]['calmed'])
 
-    def test_top_eight(self):
+    def test_all_apps_available_for_search_and_sort(self):
         for i in range(12):
             unit(self.root, f'app.slice/app-x{i}-{i}.scope', 0, i * MIB)
         apps, _ = collector.app_snapshot({}, 0, root=self.root)
-        self.assertEqual(len(apps), 8)
+        self.assertEqual(len(apps), 12)
         self.assertEqual(apps[0]['id'], 'x11')
 
     def test_frozen_and_calmed_kept_past_top_eight(self):
@@ -121,9 +125,23 @@ class SnapshotTests(unittest.TestCase):
         unit(self.root, 'app.slice/app-plain-3.scope', 0, 0)
         apps, _ = collector.app_snapshot({}, 0, root=self.root)
         ids = [a['id'] for a in apps]
-        self.assertEqual(len(ids), 10)
+        self.assertEqual(len(ids), 13)
         self.assertEqual(ids[:8], [f'x{i}' for i in range(9, 1, -1)])
-        self.assertEqual(set(ids[8:]), {'iced', 'slow'})
+        self.assertEqual(set(ids[8:]), {'x0', 'x1', 'iced', 'slow', 'plain'})
+
+    def test_whole_machine_cpu_and_distinct_same_named_sessions(self):
+        a = unit(self.root, 'app.slice/agent-codex-abc.scope', 0, 20 * MIB)
+        b = unit(self.root, 'app.slice/agent-codex-def.scope', 0, 30 * MIB)
+        state = {}
+        collector.app_snapshot(state, 0, root=self.root, cpu_count=8)
+        set_usage(a, 8_000_000)
+        set_usage(b, 2_000_000)
+        apps, agents = collector.app_snapshot(state, 2, root=self.root, cpu_count=8)
+        self.assertEqual(len(apps), 2)
+        self.assertEqual(apps[0]['cpu'], 50)
+        self.assertEqual(apps[0]['cores_used'], 4)
+        self.assertEqual(agents['cpu'], 62.5)
+        self.assertNotEqual(apps[0]['id'], apps[1]['id'])
 
     def test_agent_jobs(self):
         for pid, ticks, argv in ((11, (5, 5), b'/usr/bin/claude\0--resume\0x\0'), (12, (500, 100), b'/usr/bin/cargo\0test\0--all\0')):

@@ -65,6 +65,19 @@ class CollectorTests(unittest.TestCase):
 
 
 class InstallerTests(unittest.TestCase):
+    def test_hybrid_widget_has_one_enable_record_and_preserves_options(self):
+        spec = importlib.util.spec_from_file_location('installer', ROOT / 'install.py')
+        installer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(installer)
+        with tempfile.TemporaryDirectory() as tmp:
+            shell = Path(tmp) / 'shell.json'
+            shell.write_text(json.dumps({'plugins': [{'id': 'lucas.resource-usage', 'custom': 42}, {'id': 'other'}],
+                                         'bar': {'layout': {'right': [{'id': 'lucas.resource-usage', 'barStyle': 'graph'}]}}}))
+            data = installer.configure_bar(shell)
+            self.assertEqual(data['plugins'], [{'id': 'other'}])
+            self.assertEqual(data['bar']['layout']['right'][0]['custom'], 42)
+            self.assertEqual(data['bar']['layout']['right'][0]['barStyle'], 'graph')
+
     def test_updates_preserve_existing_vitals_options_and_position(self):
         for section in ('left', 'center', 'right'):
             with self.subTest(section=section), tempfile.TemporaryDirectory() as tmp:
@@ -82,7 +95,7 @@ class InstallerTests(unittest.TestCase):
                     'right': [{'id': 'omarchy.network'}, {'id': 'omarchy.battery'}],
                 }
                 layout[section].insert(1, vitals)
-                original = {'version': 1, 'idle': {'lock': 300}, 'bar': {'layout': layout}}
+                original = {'version': 1, 'plugins': [{'id': 'unrelated.service', 'option': 1}], 'idle': {'lock': 300}, 'bar': {'layout': layout}}
                 shell.write_text(json.dumps(original))
                 command = [sys.executable, str(ROOT / 'install.py'), '--no-start']
                 env = dict(os.environ, XDG_CONFIG_HOME=str(config), VITALS_BIN_DIR=str(config.parent / 'bin'))
@@ -107,10 +120,13 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(data['bar']['layout']['center'], [unrelated])
             self.assertEqual(data['bar']['layout']['right'], [{'id': 'lucas.resource-usage'}, {'id': 'omarchy.network'}])
             unit = config / 'systemd/user/omarchy-resource-usage.service'
-            self.assertIn('%%', unit.read_text())
-            self.assertIn('ExecStart=/usr/bin/python3 "', unit.read_text())
+            self.assertFalse(unit.exists())
+            self.assertNotIn('lucas.resource-usage', data.get('plugins', []))
             target = config / 'omarchy/plugins/lucas.resource-usage'
             self.assertTrue((target / 'collector.py').is_file())
+            self.assertTrue((target / 'Service.qml').is_file())
+            self.assertTrue((target / 'vitals/history.py').is_file())
+            self.assertTrue((target / 'docs/validation.md').is_file())
             self.assertFalse((target / '__pycache__').exists())
             subprocess.run(command + ['--uninstall'], env=env, check=True, capture_output=True)
             self.assertEqual(json.loads(shell.read_text()), original)
