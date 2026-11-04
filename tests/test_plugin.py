@@ -85,7 +85,7 @@ class InstallerTests(unittest.TestCase):
                 original = {'version': 1, 'idle': {'lock': 300}, 'bar': {'layout': layout}}
                 shell.write_text(json.dumps(original))
                 command = [sys.executable, str(ROOT / 'install.py'), '--no-start']
-                env = dict(os.environ, XDG_CONFIG_HOME=str(config))
+                env = dict(os.environ, XDG_CONFIG_HOME=str(config), VITALS_BIN_DIR=str(config.parent / 'bin'))
                 for _ in range(2):
                     subprocess.run(command, env=env, check=True, capture_output=True)
                     self.assertEqual(json.loads(shell.read_text()), original)
@@ -98,7 +98,7 @@ class InstallerTests(unittest.TestCase):
             unrelated = {'id': 'omarchy.clock', 'format': 'HH:mm'}
             original = {'version': 1, 'idle': {'lock': 300}, 'bar': {'layout': {'left': [], 'center': [unrelated], 'right': [{'id': 'omarchy.network'}]}}}
             shell.write_text(json.dumps(original))
-            env = dict(os.environ, XDG_CONFIG_HOME=str(config))
+            env = dict(os.environ, XDG_CONFIG_HOME=str(config), VITALS_BIN_DIR=str(config.parent / 'bin'))
             command = [sys.executable, str(ROOT / 'install.py'), '--no-start']
             for _ in range(2):
                 subprocess.run(command, env=env, check=True, capture_output=True)

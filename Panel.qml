@@ -165,6 +165,7 @@ Panel {
             Text { text: modelData.detail; color: Qt.alpha(Commons.Color.foreground, 0.65); font.family: Style.font.family; font.pixelSize: Style.font.bodySmall }
           }
         }
+        AppList { width: parent.width; apps: root.sample.apps; agents: root.sample.agents }
         Column {
           width: parent.width
           spacing: Style.space(12)

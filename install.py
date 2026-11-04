@@ -12,7 +12,30 @@ PLUGIN_ID = 'lucas.resource-usage'
 SERVICE = 'omarchy-resource-usage.service'
 FILES = ('Panel.qml', 'HistoryChart.qml', 'collector.py', 'manifest.json',
          'install.py', 'omarchy-resource-usage.service.in', 'README.md', 'LICENSE', '.gitignore',
-         'tests/test_plugin.py')
+         'tests/test_plugin.py', 'bin/vitals-run', 'tests/test_launcher.py',
+         'AppList.qml', 'tests/test_apps.py')
+
+
+def bin_dir(config):
+    explicit = os.environ.get('VITALS_BIN_DIR')
+    if explicit:
+        return Path(explicit)
+    return Path.home() / '.local/bin'
+
+
+def link_launcher(link, launcher):
+    if link.is_symlink() or link.exists():
+        if not (link.is_symlink() and link.resolve() == launcher.resolve()):
+            return False  # Never replace a user's own file.
+        link.unlink()
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(launcher)
+    return True
+
+
+def unlink_launcher(link, launcher):
+    if link.is_symlink() and link.resolve() == launcher.resolve():
+        link.unlink()
 
 
 def systemd_argument(path):
@@ -65,6 +88,7 @@ def main():
         if not args.no_start:
             subprocess.run(['systemctl', '--user', 'disable', '--now', SERVICE], check=True)
         unit.unlink(missing_ok=True)
+        unlink_launcher(bin_dir(config) / 'vitals-run', target / 'bin/vitals-run')
     else:
         target.mkdir(parents=True, exist_ok=True)
         if source != target.resolve():
@@ -74,6 +98,9 @@ def main():
                     shutil.copy2(target / name, backup_root / name)
                 (target / name).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source / name, target / name)
+        (target / 'bin/vitals-run').chmod(0o755)
+        if not link_launcher(bin_dir(config) / 'vitals-run', target / 'bin/vitals-run'):
+            print('Left existing ' + str(bin_dir(config) / 'vitals-run') + ' alone.')
         unit.parent.mkdir(parents=True, exist_ok=True)
         unit.write_text((target / 'omarchy-resource-usage.service.in').read_text().replace('@COLLECTOR@', systemd_argument(target / 'collector.py')))
     temporary = shell.with_suffix('.json.tmp')
