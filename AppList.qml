@@ -183,7 +183,8 @@ Column {
         required property var modelData
         readonly property var st: root.stateOf(modelData)
         readonly property bool actionable: root.validUnits(modelData).length > 0
-        readonly property bool showActions: actionable && (rowHover.hovered || st.frozen || st.calmed)
+        readonly property bool showActions: actionable && rowHover.hovered
+        readonly property string label: modelData.name || modelData.id
         width: parent.width
         height: root.actionSize + Style.space(2)
 
@@ -194,18 +195,79 @@ Column {
           color: rowHover.hovered ? Qt.alpha(Commons.Color.foreground, 0.06) : "transparent"
         }
 
-        Text {
+        // Name, then a small lit glyph for each active state. Its width shrinks
+        // to leave room for the numbers and, on hover, the action buttons.
+        Row {
+          id: nameRow
           anchors.left: parent.left
           anchors.leftMargin: Style.space(4)
           anchors.verticalCenter: parent.verticalCenter
-          width: parent.width - root.cpuColumn - root.memColumn - root.actionSize * 2 - Style.space(16)
-          elide: Text.ElideRight
-          text: row.modelData.name || row.modelData.id
-          color: row.st.frozen ? Qt.alpha(Commons.Color.foreground, 0.5) : Commons.Color.foreground
-          font.family: Style.font.family; font.pixelSize: Style.font.bodySmall
+          spacing: Style.space(5)
+          readonly property real available: (row.showActions ? actions.x : numbers.x) - x - Style.space(8)
+          Text {
+            anchors.verticalCenter: parent.verticalCenter
+            width: Math.min(implicitWidth, Math.max(0, nameRow.available - (stateGlyphs.visible ? stateGlyphs.implicitWidth + nameRow.spacing : 0)))
+            elide: Text.ElideRight
+            text: row.label
+            color: row.st.frozen ? Qt.alpha(Commons.Color.foreground, 0.5) : Commons.Color.foreground
+            font.family: Style.font.family; font.pixelSize: Style.font.bodySmall
+          }
+          Text {
+            id: stateGlyphs
+            anchors.verticalCenter: parent.verticalCenter
+            visible: (row.st.calmed || row.st.frozen) && !row.showActions
+            text: (row.st.calmed ? root.calmGlyph : "") + (row.st.calmed && row.st.frozen ? " " : "") + (row.st.frozen ? root.freezeGlyph : "")
+            color: Commons.Color.accent
+            font.family: Style.font.family; font.pixelSize: Style.font.caption
+          }
         }
+
+        // Actions float in the gap left of the numbers, only while hovered.
         Row {
+          id: actions
+          anchors.right: numbers.left
+          anchors.rightMargin: Style.space(6)
+          anchors.verticalCenter: parent.verticalCenter
+          spacing: Style.space(2)
+          visible: row.showActions
+          Repeater {
+            model: [
+              { glyph: root.calmGlyph, active: row.st.calmed, action: row.st.calmed ? "uncalm" : "calm",
+                tip: (row.st.calmed ? "Restore CPU priority for " : "Calm (low CPU priority) ") + row.label },
+              { glyph: root.freezeGlyph, active: row.st.frozen, action: row.st.frozen ? "thaw" : "freeze",
+                tip: (row.st.frozen ? "Thaw " : "Freeze ") + row.label }
+            ]
+            delegate: Rectangle {
+              id: btn
+              required property var modelData
+              width: root.actionSize
+              height: root.actionSize
+              radius: Style.space(5)
+              color: btn.modelData.active ? Qt.alpha(Commons.Color.accent, 0.22)
+                   : area.containsMouse ? Qt.alpha(Commons.Color.foreground, 0.16) : "transparent"
+              Text {
+                anchors.centerIn: parent
+                text: btn.modelData.glyph
+                color: btn.modelData.active ? Commons.Color.accent : Qt.alpha(Commons.Color.foreground, area.containsMouse ? 1 : 0.7)
+                font.family: Style.font.family; font.pixelSize: Style.font.bodySmall
+              }
+              MouseArea {
+                id: area
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onContainsMouseChanged: root.hint = containsMouse ? btn.modelData.tip : (root.hint === btn.modelData.tip ? "" : root.hint)
+                onClicked: root.act(row.modelData, btn.modelData.action)
+              }
+            }
+          }
+        }
+
+        // Numbers sit flush right; nothing is reserved for the actions.
+        Row {
+          id: numbers
           anchors.right: parent.right
+          anchors.rightMargin: Style.space(4)
           anchors.verticalCenter: parent.verticalCenter
           Text {
             width: root.cpuColumn
@@ -224,40 +286,6 @@ Column {
             color: Qt.alpha(Commons.Color.foreground, 0.6)
             font.family: Style.font.family; font.pixelSize: Style.font.bodySmall
             font.features: ({ "tnum": 1 })
-          }
-          Item { width: Style.space(8); height: 1 }
-          Repeater {
-            model: [
-              { glyph: root.calmGlyph, active: row.st.calmed, action: row.st.calmed ? "uncalm" : "calm",
-                tip: (row.st.calmed ? "Restore CPU priority for " : "Calm (low CPU priority) ") + (row.modelData.name || row.modelData.id) },
-              { glyph: root.freezeGlyph, active: row.st.frozen, action: row.st.frozen ? "thaw" : "freeze",
-                tip: (row.st.frozen ? "Thaw " : "Freeze ") + (row.modelData.name || row.modelData.id) }
-            ]
-            delegate: Rectangle {
-              id: btn
-              required property var modelData
-              width: root.actionSize
-              height: root.actionSize
-              radius: Style.space(5)
-              opacity: row.showActions ? 1 : 0
-              color: btn.modelData.active ? Qt.alpha(Commons.Color.accent, 0.22)
-                   : area.containsMouse ? Qt.alpha(Commons.Color.foreground, 0.16) : "transparent"
-              Text {
-                anchors.centerIn: parent
-                text: btn.modelData.glyph
-                color: btn.modelData.active ? Commons.Color.accent : Qt.alpha(Commons.Color.foreground, area.containsMouse ? 1 : 0.7)
-                font.family: Style.font.family; font.pixelSize: Style.font.bodySmall
-              }
-              MouseArea {
-                id: area
-                anchors.fill: parent
-                hoverEnabled: true
-                enabled: row.showActions
-                cursorShape: Qt.PointingHandCursor
-                onContainsMouseChanged: root.hint = containsMouse ? btn.modelData.tip : (root.hint === btn.modelData.tip ? "" : root.hint)
-                onClicked: root.act(row.modelData, btn.modelData.action)
-              }
-            }
           }
         }
       }
