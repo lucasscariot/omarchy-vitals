@@ -41,6 +41,7 @@ class LauncherTests(unittest.TestCase):
 
     def test_default_label_and_scope(self):
         with mock.patch.object(launcher.shutil, 'which', return_value='/usr/bin/systemd-run'), \
+                mock.patch.object(launcher, 'manager_available', return_value=True), \
                 mock.patch.dict(os.environ, {'XDG_RUNTIME_DIR': '/run/user/1'}), \
                 mock.patch.object(launcher.os, 'execvp') as execvp:
             launcher.main(['/opt/bin/Claude', '--resume'])
@@ -51,16 +52,16 @@ class LauncherTests(unittest.TestCase):
 
     def test_fallback_without_systemd_run(self):
         with mock.patch.object(launcher.shutil, 'which', return_value=None), \
-                mock.patch.object(launcher.os, 'execvp') as execvp:
+                mock.patch.object(launcher, 'supervise', return_value=0) as supervise:
             launcher.main(['echo', 'hi'])
-        execvp.assert_called_once_with('echo', ['echo', 'hi'])
+        self.assertEqual(supervise.call_args.args[:2], (['echo', 'hi'], 'echo'))
 
     def test_usage_error(self):
         self.assertEqual(launcher.main([]), 2)
 
     def test_fallback_end_to_end(self):
         with tempfile.TemporaryDirectory() as empty:
-            env = dict(os.environ, PATH=empty)
+            env = dict(os.environ, PATH=empty, XDG_STATE_HOME=empty, XDG_RUNTIME_DIR=empty)
             result = subprocess.run([sys.executable, str(ROOT / 'bin/vitals-run'), '--', sys.executable, '-c', 'raise SystemExit(7)'],
                                     env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 7)

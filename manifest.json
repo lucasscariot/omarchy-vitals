@@ -2,11 +2,16 @@
   "schemaVersion": 1,
   "id": "lucas.resource-usage",
   "name": "Omarchy Vitals",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": "Lucas",
   "license": "MIT",
-  "description": "Live CPU, memory, temperature and one-hour history in a native popup.",
-  "kinds": ["bar-widget"],
-  "entryPoints": {"barWidget": "Panel.qml"},
-  "barWidget": {"displayName": "Vitals", "allowMultiple": false}
+  "description": "Live resources, app and agent attribution, hardware readings and local history.",
+  "kinds": ["service", "bar-widget"],
+  "entryPoints": {"service": "Service.qml", "barWidget": "Panel.qml"},
+  "barWidget": {"displayName": "Vitals", "allowMultiple": false,
+    "schema": [
+      {"key": "barModules", "type": "string", "default": "cpu,ram,temperature", "label": "Bar modules, in order"},
+      {"key": "barStyle", "type": "string", "default": "text", "label": "Bar style: text or graph"}
+    ]
+  }
 }

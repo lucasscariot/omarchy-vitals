@@ -1,247 +1,240 @@
 # Omarchy Vitals
 
-CPU, memory and temperature at a glance. Click the bar widget to open live
-readings and the past hour of activity.
-
-![Omarchy Vitals on a laptop: compact bar icons and a native popup with live readings and one-hour CPU, memory and temperature charts](docs/images/overview.png)
-
-*Captured on an Omarchy laptop with real readings and a full hour of history.*
-
-<details>
-<summary>View the history panel up close</summary>
-
-![Vitals panel showing CPU usage, memory in GiB, CPU temperature, and three history charts with sampled averages and peaks](docs/images/history-panel.png)
-
-</details>
-
-## What you get
-
-![The Vitals bar readout, with CPU, RAM and temperature icons](docs/images/bar.png)
-
-From left to right: **CPU usage**, **RAM usage**, **CPU temperature**.
-Hover for labels; click for details.
-
-- Live readings every two seconds, with compact icons and consistent spacing.
-- A fixed bar footprint, so changing values do not move neighbouring widgets.
-  Longer readings shrink slightly to fit.
-- Each reading sits next to its one-hour chart, with the average and sampled peak.
-- A native popup that follows your Omarchy colors, fonts, corners and transparency.
-  Click outside or press Escape to close it.
-- Background collection while the popup is closed. Readings stay on your machine;
-  the collector makes no network requests.
-
-If your theme uses frosted popups, Hyprland layer blur must also be configured.
-
-## Per-app view
-
-The popup also lists the apps using your CPU and memory, so you can see what is
-heavy and do something about it.
-
-- **Apps**: each app with its CPU and memory, measured by the kernel for its
-  systemd scope. Chromium's several scopes are grouped into one entry.
-- Hover an app's row to show its two actions. An active action stays lit.
-- **Calm** (leaf): lowers an app's CPU priority (`CPUWeight=20`) so it stops crowding
-  out everything else. Click again to restore it.
-- **Freeze / Thaw** (snowflake): pauses an app completely (`systemctl --user freeze`) and
-  resumes it later.
-- **Agents**: AI agents and their builds, added up in one row.
-
-Caveats:
-
-- Freezing an app also freezes its audio and calls.
-- Freeze only works on app and agent scopes, not on the whole session.
-- Agents not started with `vitals-run` are counted under whichever app launched
-  them, such as your terminal.
-
-### Tracking agents with `vitals-run`
-
-`vitals-run` starts a command in its own systemd scope. Everything the command
-spawns, like `cargo` or `node` builds, stays inside it. The installer links it to
-`~/.local/bin/vitals-run`; set `VITALS_BIN_DIR` to choose another directory. If
-systemd is unavailable it just runs the command with a warning.
-
-```sh
-vitals-run [--name LABEL] -- COMMAND [ARGS...]
-vitals-run --name build -- cargo test
-```
-
-The label defaults to the command name. Add aliases to your shell config
-(nothing is edited for you):
-
-```sh
-alias claude='vitals-run claude'
-alias codex='vitals-run codex'
-```
-
-## Requirements
-
-- Omarchy with its Quickshell shell and the `qs.Ui.KeyboardPanel` and
-  `qs.Ui.OpticalGlyph` components. Tested on the Omarchy v4 desktop installed in
-  September 2026. Waybar installations are unsupported, and the shell APIs can
-  change between releases.
-- Linux, Python 3.10+, systemd user services and an active graphical session.
-- A Nerd Font installed for the bar icons. You can use another text font with
-  Nerd Font fallback.
-- Read access to `/proc/stat`, `/proc/meminfo` and optional CPU temperature
-  sensors under `/sys`.
-
-No root access or pip dependencies are needed.
+CPU, memory and temperature in the Omarchy bar, with app and agent readings,
+optional hardware modules, local history and completed-job reports.
 
 ## Install
 
 ```sh
-git clone https://github.com/lucasscariot/omarchy-vitals.git
-cd omarchy-vitals
-python3 install.py
+omarchy plugin add https://github.com/lucasscariot/omarchy-vitals.git --enable
 ```
 
-The installer backs up the affected configuration, installs the user service,
-adds Vitals to the right side of your bar, starts the collector and restarts the
-shell. An existing Vitals entry keeps its position and all custom options;
-other widgets and settings are preserved.
+The native plugin service starts one collector for all monitors. No separate
+installer, root access or pip packages are required. Collection continues while
+the popup is closed. Disabling/removing the plugin or stopping the shell stops
+collection; the next session leaves a gap rather than inventing readings.
 
-The first live reading takes about two seconds. History starts collecting at
-installation and fills while the collector runs.
-
-### Install with Omarchy's plugin command
+Update and remove with the normal plugin commands:
 
 ```sh
-omarchy plugin add https://github.com/lucasscariot/omarchy-vitals.git
-python3 ~/.config/omarchy/plugins/lucas.resource-usage/install.py
+omarchy plugin update lucas.resource-usage
+omarchy plugin remove lucas.resource-usage
 ```
 
-The plugin command clones Vitals. Run `install.py` afterward to set up the
-collector service and enable the widget. This manual setup is required for live
-readings and history.
+The plugin ID remains `lucas.resource-usage` for existing installations. The
+first native startup retires the old `omarchy-resource-usage.service`, saves its
+unit under the Vitals state directory, imports the old JSON history once, and
+preserves the bar position/options. A customized legacy service is left alone:
+disable it yourself before starting the native collector. The original JSON
+history is retained. Historical CPU totals remain comparable; app percentages
+now use whole-machine capacity.
 
-### Update
+The service links `~/.local/bin/vitals-run` to its launcher if that path is free;
+it never replaces an unrelated file. Removing the plugin can leave that dangling
+link, which can be removed manually. `install.py` remains available for local
+checkouts and backs up configuration before changing it. `--no-start` installs
+files without running desktop commands. It no longer creates a systemd service.
 
-Run from your cloned repository:
+## Readings and views
 
-```sh
-git pull --ff-only
-python3 install.py
-```
+Click the bar for compact CPU, memory and temperature readings with one-hour
+charts and leading apps. **Details** opens the advanced views. Every reopen
+returns to the compact view. Escape or a click outside closes it.
+The popup follows Omarchy's theme, fonts, borders and transparency.
 
-### Install without starting services
-
-Use `python3 install.py --no-start` to write the files without starting services
-or restarting the shell. When you are ready:
-
-```sh
-systemctl --user daemon-reload
-systemctl --user enable --now omarchy-resource-usage.service
-omarchy restart shell
-```
-
-The plugin is installed at
-`$XDG_CONFIG_HOME/omarchy/plugins/lucas.resource-usage` (default `~/.config`).
-The directory and manifest ID must remain `lucas.resource-usage`. That internal
-ID preserves existing installations; the project and display name are Omarchy Vitals.
-
-### Files changed by the installer
-
-Running `python3 install.py` applies the changes below. Configuration paths are
-relative to `$XDG_CONFIG_HOME`, which defaults to `~/.config`.
-
-| Path | Install or update | Uninstall |
-| --- | --- | --- |
-| `omarchy/shell.json` | Adds Vitals at the start of the right section if missing. Existing Vitals entries keep their section, position and custom options. | Removes Vitals entries. |
-| `omarchy/plugins/lucas.resource-usage/` | Copies the files listed in [`install.py`](install.py)'s `FILES` tuple when installing from another directory. Existing copies are backed up before replacement. | Retained. |
-| `~/.local/bin/vitals-run` | Symlinks the launcher to the installed copy, unless a different file is already there. | Removes the symlink. |
-| `systemd/user/omarchy-resource-usage.service` | Creates or replaces the collector's user service unit. | Removes the unit. |
-| `omarchy/backups/resource-usage-<timestamp>/` | Creates a backup of `shell.json`, any existing service unit, and any existing plugin files being replaced. | Creates a backup of `shell.json` and any existing service unit. All backups are retained. |
-
-Every run saves `shell.json` with normalized JSON formatting. Other configuration
-values and bar entries are preserved. The backup path is printed when the command
-finishes.
-
-Install and update reload systemd's user configuration, enable and restart the
-collector service, then restart the Omarchy shell. Uninstall disables and stops
-the service before removing its unit, reloads systemd's user configuration and
-restarts the shell.
-
-With `--no-start`, file changes and backups still happen, while all `systemctl`
-calls and the shell restart are skipped. For `--uninstall --no-start`, stop and
-disable the collector yourself before running the command:
-
-```sh
-systemctl --user disable --now omarchy-resource-usage.service
-python3 install.py --uninstall --no-start
-systemctl --user daemon-reload
-```
-
-## Reading the numbers
-
-| Reading | What it measures |
+| View | Contents |
 | --- | --- |
-| CPU | Usage across all logical CPUs, calculated from deltas in `/proc/stat`. |
-| RAM | Total minus available memory from `/proc/meminfo`, excluding reclaimable cache. The popup also shows used and total GiB. |
-| Temperature | A supported CPU package sensor, in Celsius. A dash (`—`) means no supported reading is available. |
+| Overview | Live CPU, RAM and temperature beside one-hour charts, sampled averages/peaks and leading apps. |
+| Apps | All observed user app scopes; search, CPU/memory/I/O sorting, keyboard controls and child-process details. |
+| Agents | Separate tracked sessions with project labels and session IDs, including their builds and tests. |
+| Hardware | Network rates, disk I/O and space, detected GPUs, temperatures, fans, battery and available power domains. |
+| History | Selectable CPU, memory, temperature, pressure, network, disk and GPU charts. Click an interval for observed CPU/memory/block-I/O contributors. |
+| Timeline | Tracked starts/exits, sustained pressure, collection gaps and user actions. Actions include observed conditions before and after, when available. |
+| Jobs | Recent completed tracked commands and comparisons with the previous complete run of the same project and label. |
+| Settings | Bar modules/order/style, units, refresh policy, retention, storage and alert preferences. |
 
-Temperature prefers AMD `k10temp`/`zenpower` package readings or Intel `coretemp`
-package readings, falling back to core readings and recognized CPU/SoC thermal
-zones. Multiple package sensors use the hottest reading. GPU and disk
-temperatures are not substituted. CPU and RAM still work when temperature is
-unavailable.
+CPU percentages use the machine's logical CPUs as the denominator: four busy
+cores on an eight-core machine show 50%, with “4 cores used” in app details.
+RAM is total minus available memory, so reclaimable cache is excluded. CPU
+package sensors are preferred; GPU or disk temperatures never substitute for CPU
+temperature. A dash means unavailable. First app/process readings need a second
+sample before a CPU delta is known. Scope memory includes its kernel-accounted
+memory, including page cache, and does not necessarily sum to the system RAM
+figure.
 
-History uses ten-second samples, saved every 30 seconds and on clean shutdown.
-Each CPU history point reflects a two-second measurement, so short spikes can
-be missed. Average and peak refer to the available samples, not a continuous
-measurement of the entire hour.
+Apps are grouped using systemd user scopes. System processes and processes
+outside recognizable app scopes are not an exhaustive task-manager listing;
+**Open btop** provides a full process view. The live scope list is limited to
+512 rows, with a notice if truncated. Detailed child views show at most 128
+processes. Selection stays attached to the app identity while sorting changes.
+Tab moves between controls; **Keyboard**, then Up/Down selects rows, C toggles
+Calm/Restore, and F toggles Freeze/Thaw. Search fields retain normal text editing.
 
-CPU and RAM charts use a 0–100% scale. Temperature uses a labeled dynamic scale.
-Sleep and shutdown leave gaps; missing history is not filled in. Only the most
-recent hour is loaded and retained. An abrupt shutdown can lose up to 30 seconds
-of unsaved history.
+**Calm** sets relative CPU priority to `CPUWeight=20`; **Restore** sets it to 100.
+This is a scheduling preference, not a CPU cap. **Freeze** pauses the whole scope,
+including audio and calls; **Thaw** resumes it. Actions are restricted to observed
+app/agent scopes and recheck their identities before execution. Partial failures
+are shown and recorded. Frozen/calmed apps stay reachable in the compact list.
+
+## Track agents and jobs
+
+```sh
+vitals-run -- codex
+vitals-run -- claude
+vitals-run --name build -- cargo test
+```
+
+Each launch gets its own systemd scope and session identity. Its children stay
+attributed to that scope unless they deliberately escape it, for example by
+starting a separate systemd service. Project identity comes from the local Git
+root, falling back to the working directory. Stored metadata contains the
+project basename and a hash of its path, not the absolute path or command
+arguments. Give repeated jobs the same explicit `--name` for comparisons.
+
+Optional aliases can be reviewed with:
+
+```sh
+vitals-run --shell-init
+```
+
+The Settings view also has **Copy agent aliases**. Add the copied or printed
+aliases to your shell configuration if wanted. No shell
+configuration is edited automatically. The launcher can also be called directly
+from `~/.config/omarchy/plugins/lucas.resource-usage/bin/vitals-run`.
+
+Unwrapped `claude`, `codex`, `opencode` and `gemini` root processes can be shown as
+**inferred**. This is best-effort discovery, does not claim their whole process
+tree, is excluded from tracked totals, and offers no scope actions. Disable this
+in Settings if unwanted. Agents hosted by another executable may not be inferred.
+
+The launcher preserves the command's terminal, working directory, arguments,
+exit code and signals. It records resource counters before its scope disappears,
+so short commands can get reports between collector samples and while the shell
+is stopped. Reports cover the scoped command and supervisor overhead. Disk
+figures are block-I/O bytes, not every logical file read/write. Unsupported
+counters are unavailable. Commands leaving background descendants, non-scoped
+fallbacks and missing completion receipts are marked partial/unknown; a missing
+receipt never implies success. If systemd's user manager is unavailable, the
+command still runs with partial child resource accounting. Recording failures
+warn without replacing the command's exit status.
+
+## History, pressure and events
+
+History offers one hour, 24 hours and seven days, plus 30 days when that retention
+is enabled. It stores every observed measurement in ten-second aggregates for
+an hour, one-minute aggregates through a day, and five-minute aggregates beyond
+that. Aggregates retain sampled minima, maxima, counts and observation times.
+Averages are sample averages, not a continuous measurement. Spikes shorter than
+the sampling interval can be missed.
+
+Each interval retains the leading twelve CPU, memory and I/O contributors
+(up to 36 distinct entries), rather than just the current top processes.
+Contributor averages describe the samples in which the entry was observed;
+these rows are not an additive accounting of all system usage. Network and GPU
+history are system totals; they are not attributed to individual apps. Old
+readings and events can be pruned earlier to respect the storage budget.
+
+Vertical chart markers indicate timeline events. Actions record the latest
+before sample and, once available, following samples within the next minute.
+These observations do not prove the action caused the change. Sleep, shutdown,
+counter resets and missing measurements do not become artificial recovery data.
+
+Pressure comes from Linux PSI, alongside headroom and swap counters. Normal
+incident thresholds are memory `some avg10 >= 10%`, I/O `some avg10 >= 15%`, or
+CPU `some avg10 >= 20%` together with at least 90% CPU usage. Conditions must
+persist for 15 seconds; recovery also needs 15 clear seconds. Sensitive halves
+the pressure thresholds; quiet doubles them. Missing pressure is not recovery.
+CPU utilization alone and swap usage alone do not trigger incidents. Optional
+notifications are off by default and use the normal desktop notification service.
+
+## Hardware and efficiency
+
+Network bar/history rates follow the IPv4 default-route interface, then a physical
+interface or the first available interface as fallback. Interfaces are shown
+separately in Hardware rather than summed, avoiding VPN/bridge double counting.
+Kernel counters provide network rates, whole-device disk I/O, local filesystem
+space, AMD GPU counters, readable sensors, battery and power readings. Remote
+and FUSE mounts are not queried for filesystem space. Sensor/device discovery
+is cached. Missing tools or unreadable counters leave related metrics unavailable.
+
+NVIDIA telemetry uses optional `nvidia-smi`, with output and runtime limits.
+Sleeping GPUs are not queried. Runtime-suspendable AMD cards and NVIDIA helpers
+refresh at most once per ten seconds to allow suspend between reads. If some
+NVIDIA cards are asleep, the global query is skipped. Intel cards remain visible
+but load is unavailable when their driver exposes no unprivileged load counter.
+No privileged GPU tools are installed automatically. RAPL readings require
+existing read permission; power domains are displayed separately and never added
+into an invented whole-machine total.
+
+Adaptive sampling uses two seconds while any popup is open or an incident is
+active, five seconds while closed, and ten seconds while closed on battery.
+Fixed sampling can be selected instead. Detailed child enumeration is requested while a popup is open; filesystem
+space uses a bounded helper and a 30-second cache. Hidden page content is unloaded;
+bar graphs retain only a small set of recent numeric readings.
+
+The engineering targets are under 1% of one CPU core and under 50 MiB collector
+memory during normal closed-panel use. These are targets, not cross-hardware
+performance guarantees. See [validation notes](docs/validation.md) for measured
+results and the limits of the rendering checks.
+
+## Preferences and files
+
+Display choices are saved through Omarchy in the widget's own bar entry:
+
+```json
+{"id":"lucas.resource-usage","barModules":"cpu,ram,temperature,network","barStyle":"graph"}
+```
+
+Modules are `cpu`, `ram`, `temperature`, `network`, `disk`, `gpu`, `fans`,
+`battery`, `power`. Toggle a module off/on to move it to the end. Bar values retain
+a fixed footprint for the selected modules. Collector preferences apply to every
+monitor and are saved separately. Units can be Celsius or Fahrenheit. Retention
+can be 1–30 days, storage 16–512 MiB, and fixed refresh 1–30 seconds. The Settings
+view offers common presets. Invalid persisted preferences fall back to defaults
+with a visible notice; saving valid preferences replaces them.
 
 | File | Location |
 | --- | --- |
-| Live readings | `$XDG_RUNTIME_DIR/omarchy-resource-usage.json` |
-| Saved history | `$XDG_STATE_HOME/omarchy/resource-usage/history.json` (default `~/.local/state`) |
+| Live readings for scripts | `$XDG_RUNTIME_DIR/omarchy-resource-usage.json` |
+| Collector lock and tracked-session metadata | `$XDG_RUNTIME_DIR/omarchy-vitals/` |
+| History, settings and job receipt inbox | `$XDG_STATE_HOME/omarchy/resource-usage/` |
+| Default state root | `~/.local/state/omarchy/resource-usage/` |
 
-## Troubleshooting
+History uses `history.sqlite3` with a single collector writer. Tracked launches
+write bounded private receipts that the collector imports. Data stays local;
+the collector makes no network requests. Project labels, executable/app names,
+resource readings and event times are saved; full command lines, environment
+variables and conversation content are not. Removing the plugin retains history
+and preferences. Delete its state directory manually to erase that data.
 
-Check the collector and its recent logs:
+## Requirements and troubleshooting
 
-```sh
-systemctl --user status omarchy-resource-usage.service
-journalctl --user -u omarchy-resource-usage.service -n 30
-```
+Omarchy's Quickshell plugin system with native services, `qs.Ui.KeyboardPanel`
+and the service lookup/settings APIs; Linux with cgroups v2; Python 3.10+; and a Nerd
+Font for bar glyphs. Waybar is unsupported. App controls and exact tracked scopes
+need the systemd user manager. GPU and power availability vary by driver/kernel.
 
-Open the panel directly:
+Open directly with `omarchy-shell lucas.resource-usage open`. A collector failure
+is shown in the panel and retried after five seconds. Restart the shell after
+updating QML if the host retains old service code. History from a newer,
+unsupported schema is preserved and reported instead of silently overwritten.
 
-```sh
-omarchy-shell lucas.resource-usage open
-```
-
-After editing plugin code, run `omarchy restart shell` if the bar still shows
-the previous version. A missing temperature reading alone does not prevent CPU,
-RAM or history collection.
-
-## Uninstall
-
-Run from the repository or installed plugin directory:
-
-```sh
-python3 install.py --uninstall
-```
-
-This removes all Vitals bar entries, disables and stops the collector, removes
-its user service unit and restarts the shell. It retains the installed plugin
-source, configuration backups, saved history and the last live readings. The
-live file is in the session's runtime directory; saved history survives logout.
-You can remove retained files afterward if desired. Run the uninstaller before
-deleting the plugin source so the service can be stopped and removed.
+Run the collector in a separate temporary XDG state/runtime directory for
+standalone diagnostics. Avoid running a second collector against your real
+session: a lock rejects duplicate instances.
 
 ## Development
 
 ```sh
 python3 -m unittest discover -s tests -v
+omarchy plugin validate .
+python3 tests/qml_smoke.py
 ```
 
-The collector uses the Python standard library. Tests use synthetic sensor
-directories and temporary installation roots; they do not change desktop
-settings or start services. Visual validation requires an Omarchy session.
+Unit tests use temporary roots and synthetic counters; integration tests preserve
+exit/signal/TTY behavior and exercise the streaming collector. The optional QML
+smoke check needs installed Omarchy/Quickshell and renders all views offscreen
+with private XDG directories. It substitutes the compositor popup surface, so it
+does not validate real layer-shell positioning or desktop key routing.
 
 Licensed under the [MIT license](LICENSE).

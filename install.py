@@ -10,10 +10,10 @@ import subprocess
 
 PLUGIN_ID = 'lucas.resource-usage'
 SERVICE = 'omarchy-resource-usage.service'
-FILES = ('Panel.qml', 'HistoryChart.qml', 'collector.py', 'manifest.json',
-         'install.py', 'omarchy-resource-usage.service.in', 'README.md', 'LICENSE', '.gitignore',
-         'tests/test_plugin.py', 'bin/vitals-run', 'tests/test_launcher.py',
-         'AppList.qml', 'tests/test_apps.py')
+ROOT = Path(__file__).resolve().parent
+FILES = tuple(str(p.relative_to(ROOT)) for pattern in ('*.qml', 'vitals/*.py', 'tests/*.py')
+              for p in sorted(ROOT.glob(pattern))) + ('collector.py', 'manifest.json',
+              'install.py', 'README.md', 'LICENSE', '.gitignore', 'bin/vitals-run', 'docs/validation.md')
 
 
 def bin_dir(config):
@@ -38,12 +38,6 @@ def unlink_launcher(link, launcher):
         link.unlink()
 
 
-def systemd_argument(path):
-    # systemd ExecStart is not a shell. Escape its own specifiers and quoting.
-    value = str(path).replace('%', '%%').replace('$', '$$').replace('\\', '\\\\').replace('"', '\\"')
-    return '"' + value + '"'
-
-
 def configure_bar(path, remove=False):
     data = json.loads(path.read_text())
     layout = data.get('bar', {}).get('layout')
@@ -64,6 +58,21 @@ def configure_bar(path, remove=False):
         layout[section] = updated
     if not found and not remove:
         layout['right'].insert(0, {'id': PLUGIN_ID})
+    # A hybrid widget's bar entry enables its service too. A second plugins[]
+    # entry would keep that service enabled after the host removes the bar entry.
+    plugins = data.get('plugins', [])
+    if not isinstance(plugins, list):
+        raise ValueError('Expected plugins to be a list')
+    if 'plugins' in data:
+        if not remove:
+            for plugin in plugins:
+                if isinstance(plugin, dict) and plugin.get('id') == PLUGIN_ID:
+                    for entries in layout.values():
+                        for entry in entries:
+                            if isinstance(entry, dict) and entry.get('id') == PLUGIN_ID:
+                                for key, value in plugin.items():
+                                    entry.setdefault(key, value)
+        data['plugins'] = [p for p in plugins if p != PLUGIN_ID and not (isinstance(p, dict) and p.get('id') == PLUGIN_ID)]
     return data
 
 
@@ -85,9 +94,11 @@ def main():
     if unit.exists():
         shutil.copy2(unit, backup_root / SERVICE)
     if args.uninstall:
-        if not args.no_start:
+        if not args.no_start and unit.exists():
             subprocess.run(['systemctl', '--user', 'disable', '--now', SERVICE], check=True)
         unit.unlink(missing_ok=True)
+        if not args.no_start:
+            subprocess.run(['systemctl', '--user', 'daemon-reload'], check=True)
         unlink_launcher(bin_dir(config) / 'vitals-run', target / 'bin/vitals-run')
     else:
         target.mkdir(parents=True, exist_ok=True)
@@ -101,18 +112,13 @@ def main():
         (target / 'bin/vitals-run').chmod(0o755)
         if not link_launcher(bin_dir(config) / 'vitals-run', target / 'bin/vitals-run'):
             print('Left existing ' + str(bin_dir(config) / 'vitals-run') + ' alone.')
-        unit.parent.mkdir(parents=True, exist_ok=True)
-        unit.write_text((target / 'omarchy-resource-usage.service.in').read_text().replace('@COLLECTOR@', systemd_argument(target / 'collector.py')))
     temporary = shell.with_suffix('.json.tmp')
     temporary.write_text(json.dumps(data, indent=2) + '\n')
     temporary.replace(shell)
     if not args.no_start:
-        subprocess.run(['systemctl', '--user', 'daemon-reload'], check=True)
-        if not args.uninstall:
-            subprocess.run(['systemctl', '--user', 'enable', SERVICE], check=True)
-            subprocess.run(['systemctl', '--user', 'restart', SERVICE], check=True)
-        subprocess.run(['omarchy', 'restart', 'shell'], check=True)
-    print(('Uninstalled service and bar entry.' if args.uninstall else 'Installed ' + PLUGIN_ID + '.'))
+        subprocess.run(['omarchy-shell', 'shell', 'rescanPlugins'], check=True)
+        subprocess.run(['omarchy', 'plugin', 'disable' if args.uninstall else 'enable', PLUGIN_ID], check=True)
+    print(('Removed plugin and bar entries.' if args.uninstall else 'Installed native plugin ' + PLUGIN_ID + '.'))
     print('Backup: ' + str(backup_root))
 
 
